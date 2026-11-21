@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<script src="api.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🎣%3C/text%3E%3C/svg%3E">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>魚價行情</title>
+<link rel="stylesheet" href="app.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+.mine { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.mine .m { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.mine .m:hover { border-color: var(--accent); }
+.tier3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 4px 0; text-align: center; }
+.tier3 div { border-radius: 6px; padding: 2px 0; }
+.tier3 .lab { font-size: 11px; color: var(--muted); }
+.tier3 .val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tier3 .t-top { background: var(--accent-soft); }
+.up { color: var(--bad); font-weight: 600; } .down { color: var(--good); font-weight: 600; }
+table.pt { border-collapse: collapse; width: 100%; font-size: 14px; }
+.pt th, .pt td { border-bottom: 1px solid var(--line); padding: 7px 6px; text-align: left; }
+.pt th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
+.pt td.n, .pt th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.pt td.top { font-weight: 700; color: var(--accent); }
+.pt tr { cursor: pointer; } .pt tr:hover td { background: var(--accent-soft); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters select, .filters input { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 6px 8px; }
+.unit { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.unit button { border: 0; border-radius: 0; padding: 5px 12px; }
+.unit button.on { background: var(--accent); color: #fff; }
+@media (max-width: 640px) {
+  .pt .hide-m { display: none; }
+  .filters > * { flex: 1 1 calc(50% - 8px); }
+  .filters input { flex-basis: 100%; }
+  .mine { grid-template-columns: 1fr 1fr; }
+  .tier3 .val { font-size: 15px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>💲 魚價行情</h1>
+    <div class="muted" id="meta">農業部「漁產品交易行情」開放資料・只列海水魚（非養殖、非冷凍）</div></div>
+  <div class="actions">
+    <div class="unit" id="unit"><button data-u="jin">元/台斤</button><button data-u="kg">元/公斤</button></div>
+    <a href="index.html"><button>← 預測儀表板</button></a><a href="trips.html"><button>🗓️ 船班與帳本</button></a><a href="direct.html"><button>🧑‍🎣 直售價</button></a></div>
+</header>
+
+<main>
+  <section class="card">
+    <h2 id="mineTitle">🎯 我的目標魚行情</h2>
+    <div class="muted" style="font-size:13px;margin-bottom:8px">批發市場每筆交易分 <b>上價／中價／下價</b>：同一種魚，大尾、鮮度好的成交在上價，小尾在下價（例：海鱺越大越值錢）。
+      官方資料沒有直接記錄體型，上／中／下價是當天成交價的高、中、低段，主要反映體型與品質差異。</div>
+    <div class="mine" id="mine"></div>
+    <div class="muted" style="margin-top:6px;font-size:12px">近 <span class="dval">7</span> 天各市場依交易量加權；漲跌以中價與前一期比較。點卡片看 30 天走勢。</div>
+  </section>
+
+  <section class="card">
+    <h2>🧑‍🎣 釣友／船家直售價（終端價格參考）</h2>
+    <div class="muted" style="font-size:13px;margin-bottom:8px">台灣沒有官方的魚貨零售價開放資料。這裡從已收集的 FB 貼文（「釣獲魚種…希望售價…」、「港邊買魚一斤 XX 元」等）
+      萃取近一年的直售開價，多為純釣、現流、放血處理的魚。屬於「開價」，不一定是成交價；有寫規格（幾指、幾斤）的會一併列出。</div>
+    <div class="scroll"><table class="pt" id="direct"></table></div>
+  </section>
+
+  <section class="card" id="trendBox" style="display:none">
+    <h2 id="trendTitle">走勢</h2>
+    <div style="position:relative;height:260px"><canvas id="trend"></canvas></div>
+    <div id="trendMarkets" style="margin-top:8px;font-size:13px"></div>
+  </section>
+
+  <section class="card">
+    <div class="filters">
+      <select id="fMarket"><option value="北部" selected>北部市場（基隆、台北、三重、桃園、埔心、新竹）</option>
+        <option value="">全部市場</option><option>三重</option><option>佳里</option><option>台中</option><option>台北</option><option>台南</option><option>嘉義</option><option>埔心</option><option>基隆</option><option>岡山</option><option>彰化</option><option>斗南</option><option>新港</option><option>新營</option><option>新竹</option><option>東港</option><option>桃園</option><option>梓官</option><option>澎湖</option><option>興達港</option><option>花蓮</option><option>苗栗</option><option>蘇澳</option><option>頭城</option><option>高雄</option></select>
+      <select id="fDays"><option value="3">近 3 天</option><option value="7" selected>近 7 天</option><option value="14">近 14 天</option><option value="30">近 30 天</option></select>
+      <label><input type="checkbox" id="fMine"> 只看我的魚種</label>
+      <input id="fQ" placeholder="搜尋魚名（例：紅魽、石斑、海鱺）" style="flex:1;min-width:180px">
+    </div>
+    <div class="scroll" style="margin-top:10px"><table class="pt" id="tbl"></table></div>
+  </section>
+</main>
+
+<script>
+const NAMES = {"amberjack": "\u7d05\u7518(\u7d05\u9b7d)", "bigeye": "\u5927\u76ee(\u7d05\u5927\u76ee)", "bigfin_squid": "\u8edf\u7d72", "billfish": "\u65d7\u9b5a", "blackbream": "\u9ed1\u9bdb", "bonito": "\u7159\u4ed4", "chub_mackerel": "\u9bd6\u9b5a", "cobia": "\u6d77\u9c7a", "croaker": "\u9bb8\u9b5a", "cuttlefish": "\u82b1\u679d", "dentex": "\u8d64\u9bee", "emperor": "\u9f8d\u5360", "filefish": "\u525d\u76ae\u9b5a", "giant_trevally": "\u725b\u6e2f\u9c3a(GT)", "grouper": "\u77f3\u6591", "grunt": "\u9ec3\u96de(\u661f\u96de)", "hairtail": "\u767d\u5e36\u9b5a", "horse_mackerel": "\u7af9\u7b74\u9b5a", "loligo": "\u900f\u62bd", "longtail": "\u9577\u5c3e\u9ce5", "mahi": "\u9b3c\u982d\u5200", "oil_hairtail": "\u6cb9\u5e36\u9b5a", "rosy_seabass": "\u9ed1\u5589", "scorpionfish": "\u51f8\u76ee\u77f3\u72d7\u516c", "seabass": "\u6d77\u9c78", "seabream": "\u771f\u9bdb(\u5609\u9c72)", "spanish_mackerel": "\u571f\u9b60", "terapon": "\u82b1\u8eab\u96de\u9b5a", "threadfin_bream": "\u7d05\u689d", "tilefish": "\u99ac\u982d", "tuna": "\u9baa\u9b5a", "white_croaker": "\u767d\u59d1\u9b5a", "yellowtail": "\u9752\u7518"};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const chg = c => c == null ? '<span class="muted">–</span>' : `<span class="${c > 0 ? 'up' : c < 0 ? 'down' : ''}">${c > 0 ? '▲' : c < 0 ? '▼' : ''}${Math.abs(c)}%</span>`;
+let DATA = null, chart = null, DIRECT = {}, DIRECT_ITEMS = [], lastTrend = null;
+let UNIT = (() => { try { return localStorage.getItem('unit') || 'jin'; } catch (e) { return 'jin'; } })();
+const U = () => UNIT === 'jin' ? '元/台斤' : '元/公斤';
+const tv = t => t ? t[UNIT] : null;                       // 取單一等級價格（依目前單位）
+const fromJin = v => UNIT === 'jin' ? v : Math.round(v / 0.6);   // 直售價原始單位是台斤
+
+function tier3(t) {
+  return `<div class="tier3">
+    <div class="t-top"><div class="lab">上價</div><div class="val">${tv(t.top) ?? '–'}</div></div>
+    <div><div class="lab">中價</div><div class="val">${tv(t.mid) ?? '–'}</div></div>
+    <div><div class="lab">下價</div><div class="val">${tv(t.low) ?? '–'}</div></div></div>`;
+}
+
+async function load() {
+  const q = new URLSearchParams({ days: fDays.value, market: fMarket.value });
+  DATA = await (await fetch('/api/prices?' + q)).json();
+  document.querySelectorAll('.dval').forEach(e => e.textContent = fDays.value);
+  document.getElementById('meta').textContent =
+    `農業部「漁產品交易行情」開放資料・最新交易日 ${DATA.last || '–'}・只列海水魚（非養殖、非冷凍）・1 公斤 = 1.67 台斤`;
+  document.getElementById('mineTitle').textContent = `🎯 我的目標魚行情（${fMarket.value ? fMarket.value + (fMarket.value === '北部' ? '市場' : '') : '全部市場'}・${U()}）`;
+  render();
+}
+
+function render() {
+  document.querySelectorAll('#unit button').forEach(b => b.classList.toggle('on', b.dataset.u === UNIT));
+  const items = DATA.items;
+  const best = {};
+  for (const it of items) if (it.species_id && (!best[it.species_id] || it.volume_kg > best[it.species_id].volume_kg)) best[it.species_id] = it;
+  document.getElementById('mine').innerHTML = Object.entries(best).sort((a, b) => b[1].volume_kg - a[1].volume_kg).map(([sid, it]) => `
+    <div class="m" onclick="showTrend(${it.code}, '${esc(it.name)}')">
+      <div><b>${esc(NAMES[sid] || it.name)}</b> <span class="muted" style="font-size:12px">${NAMES[sid] && NAMES[sid] !== it.name ? '（' + esc(it.name) + '）' : ''}</span></div>
+      ${tier3(it.tiers)}
+      <div style="font-size:12px">${chg(it.change)}・${it.volume_kg.toLocaleString()} kg</div>
+      ${DIRECT[sid] ? `<div style="font-size:12px;margin-top:2px">釣友直售中位 <b>${fromJin(DIRECT[sid].median)}</b>（${DIRECT[sid].n}筆）</div>` : ''}
+    </div>`).join('') || '<div class="empty">沒有資料，請按首頁「資料更新 → 更新魚價」</div>';
+  const kw = fQ.value.trim(), mine = fMine.checked;
+  const rows = items.filter(it => (!mine || it.species_id) && (!kw || it.name.includes(kw) || (NAMES[it.species_id] || '').includes(kw)));
+  document.getElementById('tbl').innerHTML = `<tr><th>魚名</th><th class="n">上價</th><th class="n">中價</th><th class="n">下價</th><th class="n">漲跌</th>
+      <th class="n hide-m">交易量 kg</th><th class="hide-m">各市場（上／中／下，${U()}）</th></tr>` +
+    rows.map(it => `<tr onclick="showTrend(${it.code}, '${esc(it.name)}')">
+      <td><b>${esc(it.name)}</b>${it.species_id ? ` <span class="tag">${esc(NAMES[it.species_id])}</span>` : ''}</td>
+      <td class="n top">${tv(it.tiers.top) ?? '–'}</td><td class="n">${tv(it.tiers.mid) ?? '–'}</td><td class="n">${tv(it.tiers.low) ?? '–'}</td>
+      <td class="n">${chg(it.change)}</td><td class="n hide-m">${it.volume_kg.toLocaleString()}</td>
+      <td class="hide-m" style="font-size:12px">${it.markets.slice(0, 5).map(m =>
+        `${esc(m.market)} ${tv(m.tiers.top) ?? '–'}／${tv(m.tiers.mid) ?? '–'}／${tv(m.tiers.low) ?? '–'}`).join('・')}</td></tr>`).join('');
+  renderDirect();
+  if (lastTrend) drawTrend(...lastTrend);
+}
+
+async function loadDirect() {
+  const d = await (await fetch('/api/direct_prices?days=365')).json();
+  DIRECT_ITEMS = d.items;
+  DIRECT = Object.fromEntries(d.items.map(x => [x.species_id, x]));
+  render();
+}
+
+function renderDirect() {
+  document.getElementById('direct').innerHTML = `<tr><th>魚種</th><th class="n">直售中位</th><th class="n hide-m">區間</th><th class="n">筆數</th>
+      <th class="n">批發上價</th><th class="hide-m">最近開價（規格）</th></tr>` +
+    DIRECT_ITEMS.map(x => {
+      const w = DATA?.items.filter(it => it.species_id === x.species_id).sort((a, b) => b.volume_kg - a.volume_kg)[0];
+      const top = w && tv(w.tiers.top);
+      return `<tr style="cursor:default"><td><b>${esc(x.name)}</b>${x.few ? ' <span class="tag">樣本少</span>' : ''}</td>
+        <td class="n top">${fromJin(x.median)}</td><td class="n hide-m">${fromJin(x.low)}～${fromJin(x.high)}</td><td class="n">${x.n}</td>
+        <td class="n">${top ?? '–'}${top ? `<div class="muted" style="font-size:11px">直售約上價 ${(fromJin(x.median) / top).toFixed(1)} 倍</div>` : ''}</td>
+        <td class="hide-m" style="font-size:12px">${x.recent.slice(0, 4).map(r => `<a href="${esc(r.url)}" target="_blank" rel="noopener">${r.date.slice(5)} ${fromJin(r.price)}${r.size ? '（' + esc(r.size) + '）' : ''}${r.sold ? '售完' : ''}</a>`).join('・')}</td></tr>`;
+    }).join('');
+}
+
+async function showTrend(code, name) {
+  const t = await (await fetch(`/api/prices/${code}?days=30&market=${encodeURIComponent(fMarket.value)}`)).json();
+  lastTrend = [code, name, t];
+  drawTrend(code, name, t);
+  document.getElementById('trendBox').scrollIntoView({ behavior: 'smooth' });
+}
+
+function drawTrend(code, name, t) {
+  const it = DATA.items.find(x => x.code === code);
+  document.getElementById('trendBox').style.display = '';
+  document.getElementById('trendTitle').textContent = `${name}・近 30 天上／中／下價走勢（${fMarket.value ? fMarket.value + (fMarket.value === '北部' ? '市場' : '') : '全部市場'}・${U()}）`;
+  document.getElementById('trendMarkets').innerHTML = it ? `各市場近期（上／中／下，${U()}）：` + it.markets.map(m =>
+    `<span class="tag">${esc(m.market)} ${tv(m.tiers.top) ?? '–'}／${tv(m.tiers.mid) ?? '–'}／${tv(m.tiers.low) ?? '–'}（${m.volume_kg.toLocaleString()}kg）</span>`).join(' ') : '';
+  chart?.destroy();
+  const line = (label, key, color, dash) => ({ type: 'line', label, data: t.map(x => tv(x.tiers[key])), borderColor: color,
+    borderDash: dash, pointRadius: 2, tension: .3, spanGaps: true, yAxisID: 'y' });
+  chart = new Chart(document.getElementById('trend'), {
+    data: { labels: t.map(x => x.date.slice(5)), datasets: [
+      line('上價', 'top', css('--accent')), line('中價', 'mid', css('--ok'), [5, 3]), line('下價', 'low', css('--muted'), [2, 2]),
+      { type: 'bar', label: '交易量 kg', data: t.map(x => x.volume_kg), backgroundColor: css('--accent-soft'), yAxisID: 'y2' }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: css('--muted') } } },
+      scales: { x: { ticks: { color: css('--muted'), maxTicksLimit: 10 }, grid: { display: false } },
+        y: { position: 'left', ticks: { color: css('--muted') }, grid: { color: css('--line') }, title: { display: true, text: U(), color: css('--muted') } },
+        y2: { position: 'right', ticks: { color: css('--muted') }, grid: { display: false }, title: { display: true, text: 'kg', color: css('--muted') } } } } });
+}
+
+document.querySelectorAll('#unit button').forEach(b => b.onclick = () => {
+  UNIT = b.dataset.u; try { localStorage.setItem('unit', UNIT); } catch (e) {}
+  document.getElementById('mineTitle').textContent = document.getElementById('mineTitle').textContent.replace(/元\/(台斤|公斤)/, U());
+  render();
+});
+fMarket.onchange = fDays.onchange = load;
+fQ.oninput = fMine.onchange = render;
+load().then(loadDirect);
+</script>
+</body>
+</html>

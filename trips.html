@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<script src="api.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🎣%3C/text%3E%3C/svg%3E">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>船班與帳本</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.plan { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.plan-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; }
+.plan-head .when { font-size: 18px; font-weight: 700; }
+.plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 8px; font-size: 13px; }
+.plan-grid > div { background: var(--bg); border-radius: 8px; padding: 8px 10px; }
+.countdown { color: var(--accent); font-weight: 700; }
+.frm { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.frm input, .frm select, .rows input, .rows select { font: inherit; border: 1px solid var(--line); background: var(--card);
+  color: var(--ink); border-radius: 8px; padding: 5px 8px; }
+.rows { display: grid; gap: 6px; margin: 6px 0; }
+.rows .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sp-pick { position: relative; }
+.sp-pick summary { cursor: pointer; list-style: none; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px;
+  background: var(--card); min-width: 180px; max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-pick summary::-webkit-details-marker { display: none; }
+.sp-pick[open] summary { border-color: var(--accent); }
+.sp-panel { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: min(560px, 90vw); background: var(--card);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.15); }
+.sp-group { margin-bottom: 8px; }
+.sp-group b { font-size: 12px; color: var(--muted); margin-right: 6px; }
+.sp-group button { font-size: 11px; padding: 0 6px; }
+.sp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 2px 8px; margin-top: 4px; }
+.sp-grid label { font-size: 13px; cursor: pointer; white-space: nowrap; }
+.rows.exp { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.report { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 10px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.kpi { border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.kpi .v { font-size: 22px; font-weight: 700; }
+table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
+.t th, .t td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: left; vertical-align: top; }
+.t th { color: var(--muted); font-weight: 600; }
+.t td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.money-pos { color: var(--good); font-weight: 700; } .money-neg { color: var(--bad); font-weight: 700; }
+.res-5, .res-4 { color: var(--good); font-weight: 700; } .res-2, .res-1 { color: var(--bad); font-weight: 700; }
+h3 { font-size: 14px; margin: 14px 0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>🗓️ 船班與帳本</h1><div class="muted">預定船班 → 自動看當天預測 → 回來記帳（花費、漁獲、賣魚） → 看哪裡賺、哪裡賠</div></div>
+  <div class="actions"><a href="index.html"><button>← 預測儀表板</button></a><a href="prices.html"><button>💲 魚價行情</button></a><a href="direct.html"><button>🧑‍🎣 直售價</button></a></div>
+</header>
+<nav class="secnav"><a href="#sec-book">預定</a><a href="#sec-plan">即將出發</a><a href="#sec-stats">帳本</a><a href="#sec-done">出海紀錄</a></nav>
+
+<main>
+  <section class="card">
+    <h2>💾 我的資料在哪裡？</h2>
+    <div class="muted" style="font-size:13px">船班與帳本只存在<b>這支手機／這台電腦的瀏覽器</b>裡，不會上傳，別人也看不到。
+      換手機、換瀏覽器或清除瀏覽資料前，請先「匯出備份」，到新裝置再「匯入備份」。</div>
+    <div class="actions" style="margin-top:8px">
+      <button onclick="FishTrips.download()">⬇️ 匯出備份</button>
+      <button onclick="document.getElementById('impFile').click()">⬆️ 匯入備份</button>
+      <input type="file" id="impFile" accept=".json,application/json" hidden
+             onchange="FishTrips.upload(this.files[0]).then(load); this.value = ''">
+    </div>
+  </section>
+  <section class="card" id="sec-book">
+    <h2>➕ 預定船班</h2>
+    <details style="margin-bottom:10px"><summary class="muted" style="cursor:pointer">📋 貼上船家的船班公告，自動填表</summary>
+      <textarea id="annText" rows="6" style="width:100%;margin-top:6px;font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--card);color:var(--ink)"
+        placeholder="把 FB / LINE 上的船班公告整段貼上（日期、集合/出船時間、船資、魚種、釣法、水深…）"></textarea>
+      <button type="button" onclick="parseAnn()">解析並填入下方表單</button> <span id="annMsg" class="muted"></span>
+    </details>
+    <form id="bookForm" class="frm">
+      <input type="date" name="date" required>
+      <input name="boat" placeholder="船家（例：小航海）" list="boats" style="width:150px">
+      <select name="port_id"><option value="keelung">基隆</option><option value="fuguei">富貴角/北海岸</option><option value="tamsui">淡水外海</option><option value="ne_coast">東北角</option><option value="guishan">龜山島/宜蘭</option><option value="hsinchu">新竹40米</option><option value="hsinchu80">新竹80米</option><option value="houlong">後龍/外埔</option><option value="taichung">台中</option><option value="changhua">彰化</option><option value="beisan">北三</option><option value="dayudong">大嶼東</option><option value="diaoyutai">釣魚台</option></select>
+      <div class="sp-slot" data-selected=""></div>
+      <input name="method" placeholder="釣法（弓角、小搞…）" style="width:130px">
+      <input name="depart_time" type="time" title="集合時間">
+      <input name="fare" type="number" placeholder="船資" style="width:90px">
+      <input name="note" placeholder="備註（船班名稱、聯絡人…）" style="flex:1;min-width:160px">
+      <button class="primary" type="submit">預定</button>
+    </form>
+    <datalist id="boats"></datalist><datalist id="places"></datalist>
+  </section>
+
+  <section class="card" id="sec-plan">
+    <h2>⛴️ 即將出發</h2>
+    <div id="planned"></div>
+  </section>
+
+  <section class="card" id="sec-stats">
+    <h2>💰 帳本統計</h2>
+    <div id="stats"></div>
+  </section>
+
+  <section class="card" id="sec-done">
+    <div class="actions" style="justify-content:space-between">
+      <h2 style="margin:0">📒 出海紀錄</h2>
+      <button onclick="openPast()">補登舊行程</button>
+    </div>
+    <div id="pastForm"></div>
+    <div id="backtest" class="muted" style="margin:8px 0"></div>
+    <div class="scroll"><table class="t cards" id="done"></table></div>
+  </section>
+</main>
+
+<script>
+const SPECIES = [{"aliases": ["\u767d\u5e36", "\u767d\u5e36\u9b5a", "\u767d\u8179\u4ed4", "\u7259\u5e36", "\u5e36\u9b5a", "\u5927\u767d", "\u5c0f\u767d"], "id": "hairtail", "method": "\u591c\u91e3/\u767d\u5e36\u4ed5\u639b", "name": "\u767d\u5e36\u9b5a", "night": true, "season": {"ne": [0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1, 0.8], "north": [0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1, 0.8], "west": [0.7, 0.6, 0.5, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 1, 1, 0.9]}, "sst": [18, 28], "tide_target": -0.2}, {"aliases": ["\u6cb9\u5e36", "\u6cb9\u5e36\u9b5a", "\u80a5\u5e36", "\u9ec3\u65d7\u6cb9\u5e36"], "id": "oil_hairtail", "method": "\u591c\u91e3/\u767d\u5e36\u4ed5\u639b/\u5929\u4e9e", "name": "\u6cb9\u5e36\u9b5a", "night": true, "season": {"ne": [0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1, 0.8], "north": [0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1, 0.8], "west": [0.7, 0.6, 0.5, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 1, 1, 0.9]}, "sst": [18, 28], "tide_target": -0.2}, {"aliases": ["\u7d05\u7518", "\u7d05\u9b7d", "\u7d05\u7518\u9c3a", "\u7d05\u5c3e", "\u54aa\u7518", "\u54aa\u9b7d", "\u5927\u9b7d", "\u864e\u9b7d", "\u864e\u982d\u9b7d"], "current_pref": "mid", "id": "amberjack", "method": "\u9435\u677f/\u5c0f\u641e/\u6d3b\u990c", "name": "\u7d05\u7518(\u7d05\u9b7d)", "night": false, "season": {"ne": [0.8, 0.8, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1, 0.9], "north": [0.8, 0.8, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1, 0.9], "west": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.7, 0.7, 0.6]}, "sst": [20, 28], "tide_pref": {"\u4e2d": 1.0, "\u5927": 0.85, "\u5c0f": 0.95}, "tide_target": 0.5}, {"aliases": ["\u9752\u7518", "\u9752\u9b7d", "\u9ec3\u5c3e", "\u9752\u689d"], "id": "yellowtail", "method": "\u9435\u677f/\u8def\u4e9e", "name": "\u9752\u7518", "night": false, "season": {"ne": [1, 1, 0.9, 0.8, 0.6, 0.4, 0.3, 0.3, 0.4, 0.6, 0.8, 0.9], "north": [1, 1, 0.9, 0.8, 0.6, 0.4, 0.3, 0.3, 0.4, 0.6, 0.8, 0.9], "west": [0.6, 0.6, 0.5, 0.4, 0.3, 0.2, 0.2, 0.2, 0.3, 0.4, 0.5, 0.6]}, "sst": [17, 25], "tide_target": 0.5}, {"aliases": ["\u5927\u76ee", "\u7d05\u5927\u76ee", "\u5927\u76ee\u4ed4", "\u7d05\u76ee\u9c31", "\u5927\u773c\u9bdb", "\u571f\u76ee"], "id": "bigeye", "method": "\u5c0f\u641e/\u5e95\u68f2", "name": "\u5927\u76ee(\u7d05\u5927\u76ee)", "night": false, "season": {"ne": [0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.9, 0.9, 0.9, 0.8], "north": [0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.9, 0.9, 0.9, 0.8], "west": [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6]}, "sst": [20, 29], "tide_target": 0.0}, {"aliases": ["\u9577\u5c3e\u9ce5", "\u9577\u5c3e\u6ff1\u9bdb", "\u6ff1\u9bdb", "\u7d05\u9ce5"], "id": "longtail", "method": "\u6df1\u6d77\u5c0f\u641e/\u96fb\u6372", "name": "\u9577\u5c3e\u9ce5", "night": false, "season": {"ne": [0.9, 0.9, 0.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.8, 0.9, 0.9, 0.9], "north": [0.9, 0.9, 0.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.8, 0.9, 0.9, 0.9], "west": [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]}, "sst": [18, 29], "tide_target": -0.3}, {"aliases": ["\u77f3\u6591", "\u904e\u9b5a", "\u6cb9\u6591", "\u9ede\u5e36", "\u9c60\u4ed4", "\u7d05\u6591", "\u8001\u864e\u6591"], "id": "grouper", "method": "\u5c0f\u641e/\u5e95\u68f2", "name": "\u77f3\u6591", "night": false, "season": {"ne": [0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1, 1, 1, 0.9, 0.8, 0.7], "north": [0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1, 1, 1, 0.9, 0.8, 0.7], "west": [0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1, 1, 1, 0.9, 0.8, 0.7]}, "sst": [21, 30], "tide_target": 0.0}, {"aliases": ["\u8d64\u9bee", "\u8d64\u68d5", "\u8d64\u7ae0", "\u9ec3\u9bdb", "\u8d64\u99ac"], "id": "dentex", "method": "\u5c0f\u641e/\u5e95\u68f2", "name": "\u8d64\u9bee", "night": false, "season": {"ne": [0.9, 0.9, 0.9, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 0.9], "north": [0.9, 0.9, 0.9, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 0.9], "west": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]}, "sst": [18, 27], "tide_target": 0.0}, {"aliases": ["\u9b3c\u982d\u5200", "\u98db\u864e", "\u842c\u9b5a", "\u9c70\u9b5a"], "id": "mahi", "method": "\u8def\u4e9e/\u62d6\u91e3", "name": "\u9b3c\u982d\u5200", "night": false, "season": {"ne": [0.2, 0.2, 0.4, 0.8, 1, 1, 0.8, 0.6, 0.6, 0.7, 0.5, 0.3], "north": [0.2, 0.2, 0.4, 0.8, 1, 1, 0.8, 0.6, 0.6, 0.7, 0.5, 0.3], "west": [0.1, 0.1, 0.2, 0.3, 0.4, 0.4, 0.3, 0.2, 0.2, 0.2, 0.2, 0.1]}, "sst": [24, 30], "tide_target": 0.3}, {"aliases": ["\u7159\u4ed4", "\u7159\u4ed4\u864e", "\u6b63\u9c39", "\u70b8\u5f48\u9b5a", "\u82b1\u7159", "\u9c39\u9b5a"], "id": "bonito", "method": "\u9435\u677f/\u8def\u4e9e", "name": "\u7159\u4ed4", "night": false, "season": {"ne": [0.6, 0.5, 0.5, 0.6, 0.7, 0.7, 0.6, 0.7, 0.9, 1, 1, 0.8], "north": [0.6, 0.5, 0.5, 0.6, 0.7, 0.7, 0.6, 0.7, 0.9, 1, 1, 0.8], "west": [0.4, 0.4, 0.4, 0.4, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6, 0.5]}, "sst": [20, 29], "tide_target": 0.3}, {"aliases": ["\u8edf\u7d72", "\u64ec\u70cf\u8cca", "\u8edf\u7fc5\u4ed4"], "id": "bigfin_squid", "method": "\u6728\u8766/\u8239\u91e3", "name": "\u8edf\u7d72", "night": false, "season": {"ne": [0.4, 0.5, 0.8, 1, 1, 0.8, 0.6, 0.6, 0.8, 0.9, 0.8, 0.5], "north": [0.4, 0.5, 0.8, 1, 1, 0.8, 0.6, 0.6, 0.8, 0.9, 0.8, 0.5], "west": [0.3, 0.3, 0.5, 0.7, 0.7, 0.6, 0.5, 0.5, 0.6, 0.6, 0.5, 0.3]}, "sst": [19, 28], "tide_target": 0.2}, {"aliases": ["\u900f\u62bd", "\u9396\u7ba1", "\u5c0f\u5377", "\u4e2d\u5377", "\u81ed\u9b5a"], "id": "loligo", "method": "\u591c\u91e3/\u6728\u8766/\u900f\u62bd\u4ed5\u639b", "name": "\u900f\u62bd", "night": true, "season": {"ne": [0.3, 0.3, 0.4, 0.6, 0.8, 1, 1, 1, 0.9, 0.7, 0.5, 0.3], "north": [0.3, 0.3, 0.4, 0.6, 0.8, 1, 1, 1, 0.9, 0.7, 0.5, 0.3], "west": [0.3, 0.3, 0.4, 0.5, 0.6, 0.7, 0.7, 0.7, 0.6, 0.5, 0.4, 0.3]}, "sst": [20, 29], "tide_pref": {"\u4e2d": 1.0, "\u5927": 0.88, "\u5c0f": 0.75}, "tide_target": 0.0, "wave_limit": 2.0, "wave_pref": "rough", "weather_pref": "rain"}, {"aliases": ["\u99ac\u982d", "\u99ac\u982d\u9b5a", "\u65b9\u982d\u9b5a", "\u7d05\u99ac\u982d", "\u767d\u99ac\u982d", "\u7518\u9bdb", "\u8d64\u99ac"], "id": "tilefish", "method": "\u5c0f\u641e/\u5e95\u68f2", "name": "\u99ac\u982d", "night": false, "season": {"ne": [1, 1, 0.9, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1], "north": [1, 1, 0.9, 0.8, 0.7, 0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1], "west": [0.6, 0.6, 0.6, 0.5, 0.5, 0.4, 0.4, 0.4, 0.5, 0.5, 0.6, 0.6]}, "sst": [15, 26], "tide_target": 0.0}, {"aliases": ["\u51f8\u76ee\u77f3\u72d7\u516c", "\u51f8\u76ee", "\u77f3\u72d7\u516c", "\u571f\u76ee"], "id": "scorpionfish", "method": "\u5c0f\u641e/\u5e95\u68f2", "name": "\u51f8\u76ee\u77f3\u72d7\u516c", "night": false, "season": {"ne": [0.9, 0.9, 0.9, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.9, 0.9, 0.9], "north": [0.9, 0.9, 0.9, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.9, 0.9, 0.9], "west": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]}, "sst": [16, 27], "tide_target": 0.0}, {"aliases": ["\u9bb8\u9b5a", "\u9bb8\u4ed4", "\u654f\u9b5a", "\u7c73\u9b5a"], "id": "croaker", "method": "\u6d3b\u8766/\u751f\u990c/\u6e38\u52d5\u4e38", "name": "\u9bb8\u9b5a", "night": false, "season": {"ne": [0.5, 0.5, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.5, 0.6, 0.6], "north": [0.6, 0.6, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.7], "west": [1, 0.9, 0.8, 0.6, 0.5, 0.4, 0.4, 0.4, 0.6, 0.8, 1, 1]}, "sst": [15, 26], "tide_target": 0.0}, {"aliases": ["\u82b1\u8eab\u96de\u9b5a", "\u82b1\u8eab\u96de", "\u82b1\u8eab\u4ed4", "\u96de\u4ed4\u9b5a", "\u6591\u543e"], "id": "terapon", "method": "\u751f\u990c/\u5012\u540a", "name": "\u82b1\u8eab\u96de\u9b5a", "night": false, "season": {"ne": [0.4, 0.4, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.4], "north": [0.4, 0.4, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.4], "west": [0.7, 0.7, 0.7, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.7, 0.7]}, "sst": [16, 30], "tide_target": 0.0}, {"aliases": ["\u7d05\u689d", "\u91d1\u7dda\u9b5a", "\u91d1\u7dda\u9023"], "id": "threadfin_bream", "method": "\u6572\u5e95/\u8edf\u87f2/\u5012\u540a", "name": "\u7d05\u689d", "night": false, "season": {"ne": [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6], "north": [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6], "west": [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7]}, "sst": [17, 29], "tide_target": 0.0}, {"aliases": ["\u6d77\u9c78", "\u4e03\u661f\u9c78", "\u9c78\u9b5a"], "id": "seabass", "method": "\u751f\u990c/\u8def\u4e9e", "name": "\u6d77\u9c78", "night": false, "season": {"ne": [0.6, 0.6, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.6, 0.6, 0.6], "north": [0.6, 0.6, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.5, 0.6, 0.6, 0.6], "west": [0.9, 0.8, 0.7, 0.5, 0.4, 0.4, 0.4, 0.4, 0.6, 0.8, 0.9, 0.9]}, "sst": [14, 27], "tide_target": 0.0}, {"aliases": ["\u9ec3\u96de", "\u9ec3\u96de\u9b5a", "\u661f\u96de", "\u661f\u96de\u9b5a", "\u77f3\u9c78"], "id": "grunt", "method": "\u751f\u990c/\u5012\u540a/\u5c0f\u641e", "name": "\u9ec3\u96de(\u661f\u96de)", "night": false, "season": {"ne": [0.6, 0.6, 0.6, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.6, 0.6], "north": [0.6, 0.6, 0.6, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.6, 0.6], "west": [0.7, 0.7, 0.7, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.7, 0.7]}, "sst": [17, 29], "tide_target": 0.0}, {"aliases": ["\u9ed1\u9bdb", "\u9ed1\u683c", "\u70cf\u683c", "\u539a\u5507"], "id": "blackbream", "method": "\u751f\u990c/\u5012\u540a", "name": "\u9ed1\u9bdb", "night": false, "season": {"ne": [0.6, 0.6, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6], "north": [0.7, 0.7, 0.7, 0.6, 0.5, 0.5, 0.5, 0.5, 0.6, 0.7, 0.7, 0.7], "west": [0.9, 0.9, 0.8, 0.7, 0.6, 0.5, 0.5, 0.5, 0.6, 0.8, 0.9, 0.9]}, "sst": [14, 28], "tide_target": 0.0}, {"aliases": ["\u6d77\u9c7a", "\u6d77\u9e97", "\u8ecd\u66f9\u9b5a", "\u6d77\u9c7a\u4ed4"], "id": "cobia", "method": "\u9435\u677f/\u6d3b\u990c/\u5f13\u89d2", "name": "\u6d77\u9c7a", "night": false, "season": {"ne": [0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.9, 0.9, 0.8, 0.6, 0.5], "north": [0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.9, 0.9, 0.8, 0.6, 0.5], "west": [0.5, 0.5, 0.6, 0.7, 0.8, 0.8, 0.8, 0.8, 0.8, 0.7, 0.6, 0.5]}, "sst": [20, 30], "tide_target": 0.0}, {"aliases": ["\u571f\u9b60", "\u571f\u6258", "\u99ac\u52a0", "\u9c06\u9b5a"], "id": "spanish_mackerel", "method": "\u9435\u677f/\u8def\u4e9e/\u62d6\u91e3", "name": "\u571f\u9b60", "night": false, "season": {"ne": [0.8, 0.7, 0.6, 0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.8, 0.9, 0.9], "north": [0.8, 0.7, 0.6, 0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.8, 0.9, 0.9], "west": [0.8, 0.7, 0.6, 0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.9, 0.9]}, "sst": [18, 28], "tide_target": 0.3}, {"aliases": ["\u9ed1\u5589", "\u7d05\u5589", "\u8d64\u9be5"], "id": "rosy_seabass", "method": "\u6df1\u6d77\u96fb\u6372/\u5c0f\u641e", "name": "\u9ed1\u5589", "night": false, "season": {"ne": [0.8, 0.8, 0.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.8, 0.8, 0.8], "north": [0.8, 0.8, 0.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.8, 0.8, 0.8], "west": [0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3]}, "sst": [12, 26], "tide_target": -0.2}, {"aliases": ["\u9bd6\u9b5a", "\u82b1\u98db", "\u9752\u82b1", "\u767d\u8179\u4ed4\u9b5a"], "id": "chub_mackerel", "method": "\u9bd6\u9b5a\u4ed5\u639b/\u8def\u4e9e", "name": "\u9bd6\u9b5a", "night": false, "season": {"ne": [0.8, 0.8, 0.7, 0.5, 0.4, 0.4, 0.4, 0.4, 0.5, 0.7, 0.9, 0.9], "north": [0.8, 0.8, 0.7, 0.5, 0.4, 0.4, 0.4, 0.4, 0.5, 0.7, 0.9, 0.9], "west": [0.6, 0.6, 0.5, 0.4, 0.3, 0.3, 0.3, 0.3, 0.4, 0.5, 0.6, 0.6]}, "sst": [15, 27], "tide_target": 0.0}, {"aliases": ["\u7af9\u7b74", "\u7af9\u7b74\u9b5a", "\u5df4\u650f"], "id": "horse_mackerel", "method": "\u7af9\u7b74\u4ed5\u639b/\u8def\u4e9e", "name": "\u7af9\u7b74\u9b5a", "night": false, "season": {"ne": [0.6, 0.6, 0.7, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6], "north": [0.6, 0.6, 0.7, 0.7, 0.7, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6], "west": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]}, "sst": [16, 28], "tide_target": 0.0}, {"aliases": ["\u525d\u76ae\u9b5a", "\u525d\u76ae", "\u66f3\u7d72\u55ae\u68d8\u9b68"], "id": "filefish", "method": "\u5c0f\u641e/\u5e95\u68f2", "name": "\u525d\u76ae\u9b5a", "night": false, "season": {"ne": [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7], "north": [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7], "west": [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6]}, "sst": [17, 29], "tide_target": 0.0}, {"aliases": ["\u767d\u59d1", "\u767d\u59d1\u9b5a", "\u5e15\u982d"], "id": "white_croaker", "method": "\u751f\u990c/\u5012\u540a", "name": "\u767d\u59d1\u9b5a", "night": false, "season": {"ne": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], "north": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], "west": [0.8, 0.8, 0.8, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.8, 0.8, 0.8]}, "sst": [15, 29], "tide_target": 0.0}, {"aliases": ["\u725b\u6e2f", "\u6d6a\u4eba\u9c3a", "GT", "\u725b\u6e2f\u9c3a"], "id": "giant_trevally", "method": "\u8def\u4e9e/\u9435\u677f/\u6d3b\u990c", "name": "\u725b\u6e2f\u9c3a(GT)", "night": false, "season": {"ne": [0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.8, 0.7, 0.6, 0.5, 0.4], "north": [0.4, 0.4, 0.4, 0.5, 0.6, 0.7, 0.8, 0.8, 0.7, 0.6, 0.5, 0.4], "west": [0.3, 0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 0.4, 0.4, 0.3, 0.3, 0.3]}, "sst": [22, 30], "tide_target": 0.5}, {"aliases": ["\u9baa\u9b5a", "\u9ec3\u9c2d\u9baa", "\u9ed1\u9baa", "\u9577\u9c2d\u9baa", "\u4e32\u4ed4"], "id": "tuna", "method": "\u9435\u677f/\u8def\u4e9e/\u62d6\u91e3", "name": "\u9baa\u9b5a", "night": false, "season": {"ne": [0.3, 0.3, 0.4, 0.6, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3], "north": [0.3, 0.3, 0.4, 0.6, 0.8, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3], "west": [0.2, 0.2, 0.2, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.2, 0.2]}, "sst": [22, 30], "tide_target": 0.3}, {"aliases": ["\u65d7\u9b5a", "\u96e8\u5098\u65d7", "\u767d\u8089\u65d7", "\u9ed1\u76ae\u65d7", "\u7acb\u7fc5\u65d7"], "id": "billfish", "method": "\u62d6\u91e3/\u8def\u4e9e", "name": "\u65d7\u9b5a", "night": false, "season": {"ne": [0.2, 0.2, 0.3, 0.5, 0.7, 0.8, 0.8, 0.7, 0.7, 0.6, 0.4, 0.3], "north": [0.2, 0.2, 0.3, 0.5, 0.7, 0.8, 0.8, 0.7, 0.7, 0.6, 0.4, 0.3], "west": [0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1]}, "sst": [23, 30], "tide_target": 0.3}, {"aliases": ["\u82b1\u679d", "\u864e\u6591\u70cf\u8cca", "\u70cf\u8cca"], "id": "cuttlefish", "method": "\u6728\u8766/\u8239\u91e3", "name": "\u82b1\u679d", "night": false, "season": {"ne": [0.7, 0.8, 0.9, 0.9, 0.8, 0.6, 0.5, 0.5, 0.5, 0.6, 0.7, 0.7], "north": [0.7, 0.8, 0.9, 0.9, 0.8, 0.6, 0.5, 0.5, 0.5, 0.6, 0.7, 0.7], "west": [0.6, 0.7, 0.8, 0.8, 0.7, 0.5, 0.4, 0.4, 0.4, 0.5, 0.6, 0.6]}, "sst": [16, 27], "tide_target": 0.0}, {"aliases": ["\u771f\u9bdb", "\u5609\u9c72", "\u52a0\u81d8", "\u5609\u81d8", "\u8d64\u9bdb", "\u6b63\u9bdb", "\u8fe6\u7d0d", "\u5609\u7d0d"], "id": "seabream", "method": "\u904a\u52d5\u4e38/\u5929\u4e9e/\u9bdb\u62c9\u5df4", "name": "\u771f\u9bdb(\u5609\u9c72)", "night": false, "season": {"ne": [0.9, 0.9, 1, 1, 0.9, 0.7, 0.6, 0.6, 0.7, 0.8, 0.9, 0.9], "north": [0.9, 0.9, 1, 1, 0.9, 0.7, 0.6, 0.6, 0.7, 0.8, 0.9, 0.9], "west": [0.8, 0.8, 0.9, 0.9, 0.8, 0.6, 0.5, 0.5, 0.6, 0.7, 0.8, 0.8]}, "sst": [16, 26], "tide_target": 0.2}, {"aliases": ["\u9f8d\u5360", "\u9f8d\u5c16", "\u9752\u5634\u9f8d\u5360", "\u7d05\u9c2d\u9f8d\u5360", "\u9f8d\u5360\u4ed4"], "id": "emperor", "method": "\u904a\u52d5\u4e38/\u5e95\u68f2", "name": "\u9f8d\u5360", "night": false, "season": {"ne": [0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1, 1, 1, 0.9, 0.8, 0.7], "north": [0.6, 0.6, 0.6, 0.7, 0.8, 0.9, 1, 1, 1, 0.9, 0.8, 0.7], "west": [0.5, 0.5, 0.5, 0.6, 0.7, 0.8, 0.8, 0.8, 0.8, 0.7, 0.6, 0.5]}, "sst": [21, 30], "tide_target": 0.2}].map(s => ({ id: s.id, name: s.name }));
+const PORTS = [{"aliases": ["\u57fa\u9686", "\u516b\u6597\u5b50", "\u78a7\u7802", "\u6b63\u6ff1", "\u9577\u6f6d\u91cc", "\u5916\u6728\u5c71", "\u57fa\u9686\u5dbc", "\u91ce\u67f3", "\u842c\u91cc", "\u9f9c\u543c", "\u5317\u6d77\u5cb8"], "id": "keelung", "lat": 25.18, "lon": 121.8, "name": "\u57fa\u9686", "region": "north"}, {"aliases": ["\u5bcc\u8cb4\u89d2", "\u5bcc\u57fa", "\u8001\u6885", "\u77f3\u9580", "\u9e9f\u5c71\u9f3b", "\u91d1\u5c71", "\u78fa\u6e2f", "\u4e09\u829d"], "id": "fuguei", "lat": 25.33, "lon": 121.52, "name": "\u5bcc\u8cb4\u89d2/\u5317\u6d77\u5cb8", "region": "north"}, {"aliases": ["\u6de1\u6c34", "\u6c99\u5d19", "\u516b\u91cc", "\u6de1\u6c34\u6cb3\u53e3", "\u6de1\u6c34\u5916\u6d77"], "id": "tamsui", "lat": 25.22, "lon": 121.33, "name": "\u6de1\u6c34\u5916\u6d77", "region": "north"}, {"aliases": ["\u6771\u5317\u89d2", "\u6df1\u6fb3", "\u9f3b\u982d", "\u9f8d\u6d1e", "\u6fb3\u5e95", "\u798f\u9686", "\u548c\u7f8e", "\u99ac\u5d17", "\u4e09\u8c82\u89d2", "\u536f\u6fb3", "\u745e\u82b3", "\u8ca2\u5bee"], "id": "ne_coast", "lat": 25.08, "lon": 122.0, "name": "\u6771\u5317\u89d2", "region": "north"}, {"aliases": ["\u9f9c\u5c71\u5cf6", "\u9f9c\u5c71", "\u70cf\u77f3", "\u982d\u57ce", "\u5927\u6eaa\u6f01\u6e2f", "\u6897\u678b", "\u862d\u967d", "\u5b9c\u862d", "\u5357\u65b9\u6fb3", "\u8607\u6fb3", "\u58ef\u570d"], "id": "guishan", "lat": 24.86, "lon": 121.95, "name": "\u9f9c\u5c71\u5cf6/\u5b9c\u862d", "region": "ne"}, {"aliases": ["\u65b0\u7af9", "\u5357\u5bee", "\u7af9\u570d", "\u6c38\u5b89\u6f01\u6e2f", "\u5761\u982d", "\u6d77\u5c71\u6f01\u6e2f", "\u9999\u5c71", "\u5357\u5bee\u9b5a\u7901"], "exclude_species": ["hairtail"], "id": "hsinchu", "lat": 24.86, "lon": 120.84, "name": "\u65b0\u7af940\u7c73", "region": "west"}, {"aliases": ["\u65b0\u7af980\u7c73", "\u65b0\u7af980", "\u5357\u5bee80\u7c73", "\u5357\u5bee80"], "exclude_species": ["hairtail"], "id": "hsinchu80", "lat": 25.0, "lon": 120.7, "name": "\u65b0\u7af980\u7c73", "region": "west", "report_port": "hsinchu"}, {"aliases": ["\u5f8c\u9f8d", "\u5916\u57d4", "\u82d7\u6817", "\u901a\u9704", "\u7af9\u5357", "\u9f8d\u9cf3", "\u82d1\u88e1", "\u767d\u6c99\u5c6f", "\u98a8\u8eca", "\u98a8\u6a5f"], "id": "houlong", "lat": 24.64, "lon": 120.7, "name": "\u5f8c\u9f8d/\u5916\u57d4", "region": "west"}, {"aliases": ["\u53f0\u4e2d", "\u81fa\u4e2d", "\u68a7\u68f2", "\u53f0\u4e2d\u6e2f", "\u677e\u67cf", "\u5927\u5b89", "\u4e94\u7532", "\u9e97\u6c34", "\u6e05\u6c34"], "id": "taichung", "lat": 24.28, "lon": 120.45, "name": "\u53f0\u4e2d", "region": "west"}, {"aliases": ["\u5f70\u5316", "\u738b\u529f", "\u82b3\u82d1", "\u9e7f\u6e2f", "\u5f70\u6ff1", "\u7dda\u897f", "\u5d19\u5c3e", "\u4f38\u6e2f"], "id": "changhua", "lat": 23.97, "lon": 120.25, "name": "\u5f70\u5316", "region": "west"}, {"aliases": ["\u5317\u4e09", "\u5317\u65b9\u4e09\u5cf6", "\u5f6d\u4f73\u5dbc", "\u68c9\u82b1\u5dbc", "\u82b1\u74f6\u5dbc", "\u5f6d\u4f73"], "id": "beisan", "lat": 25.63, "lon": 122.07, "name": "\u5317\u4e09", "region": "offshore"}, {"aliases": ["\u5927\u5dbc\u6771"], "id": "dayudong", "lat": 25.628, "lon": 122.441, "name": "\u5927\u5dbc\u6771", "region": "offshore"}, {"aliases": ["\u91e3\u9b5a\u53f0", "\u91e3\u9b5a\u81fa", "\u91e3\u53f0", "\u9ec3\u5c3e\u5dbc", "\u8d64\u5c3e\u5dbc"], "id": "diaoyutai", "lat": 25.74, "lon": 123.47, "name": "\u91e3\u9b5a\u53f0", "region": "offshore"}].map(p => ({ id: p.id, name: p.name }));
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = (v, u = '') => v == null ? '–' : v + u;
+const heatCls = s => s >= 80 ? 'h4' : s >= 65 ? 'h3' : s >= 50 ? 'h2' : s >= 35 ? 'h1' : 'h0';
+const money = n => n == null ? '–' : `<span class="${n >= 0 ? 'money-pos' : 'money-neg'}">${n >= 0 ? '+' : ''}${Math.round(n).toLocaleString()}</span>`;
+const num = n => n == null ? '–' : Math.round(n).toLocaleString();
+const RESULT = { 5: '爆桶', 4: '好', 3: '普通', 2: '差', 1: '槓龜' };
+let DATA = null;
+
+async function load() {
+  DATA = await (await fetch('/api/trips')).json();
+  document.getElementById('places').innerHTML = DATA.places.map(p => `<option value="${esc(p)}">`).join('');
+  const boats = [...new Set([...DATA.trips, ...DATA.planned].map(t => t.boat).filter(Boolean))];
+  document.getElementById('boats').innerHTML = boats.map(b => `<option value="${esc(b)}">`).join('');
+  renderPlanned(); renderStats(); renderDone();
+}
+
+// 魚種勾選元件：依類別分組，可整組全選
+const GROUPS = {"\u5e95\u68f2": ["grouper", "dentex", "tilefish", "bigeye", "scorpionfish", "seabream", "emperor", "grunt", "threadfin_bream", "blackbream", "croaker", "rosy_seabass", "filefish", "white_croaker"], "\u9752\u7269\uff0f\u5927\u7269": ["amberjack", "cobia", "giant_trevally", "tuna", "billfish", "mahi", "yellowtail", "bonito", "spanish_mackerel"], "\u982d\u8db3": ["bigfin_squid", "loligo", "cuttlefish"]};
+function speciesPicker(selected = []) {
+  const sel = new Set(selected);
+  const grouped = new Set(Object.values(GROUPS).flat());
+  const groups = { ...GROUPS, '其他': SPECIES.map(s => s.id).filter(id => !grouped.has(id)) };
+  const name = id => SPECIES.find(s => s.id === id)?.name || id;
+  return `<details class="sp-pick"><summary>${pickerSummary([...sel])}</summary><div class="sp-panel">
+    ${Object.entries(groups).filter(([, ids]) => ids.length).map(([g, ids]) => `<div class="sp-group">
+      <b>${esc(g)}</b><button type="button" onclick="toggleGroup(this, true)">全選</button><button type="button" onclick="toggleGroup(this, false)">清除</button>
+      <div class="sp-grid">${ids.map(id => `<label><input type="checkbox" name="species" value="${id}" ${sel.has(id) ? 'checked' : ''}
+        onchange="refreshPicker(this)"> ${esc(name(id))}</label>`).join('')}</div></div>`).join('')}
+    <div style="text-align:right"><button type="button" onclick="this.closest('details').open = false">完成</button></div>
+  </div></details>`;
+}
+function pickerSummary(ids) {
+  if (!ids.length) return '<span class="muted">目標魚（點此勾選）</span>';
+  const names = ids.map(id => SPECIES.find(s => s.id === id)?.name || id);
+  return `🐟 ${esc(names.slice(0, 4).join('、'))}${names.length > 4 ? ` 等 ${names.length} 種` : ''}`;
+}
+function checkedSpecies(root) { return [...root.querySelectorAll('input[name=species]:checked')].map(i => i.value); }
+function refreshPicker(el) {
+  const d = el.closest('details');
+  d.querySelector('summary').innerHTML = pickerSummary(checkedSpecies(d));
+}
+function toggleGroup(btn, on) {
+  btn.closest('.sp-group').querySelectorAll('input[type=checkbox]').forEach(i => i.checked = on);
+  refreshPicker(btn);
+}
+function mountPicker(root, selected) { root.querySelector('.sp-slot').innerHTML = speciesPicker(selected); }
+// 點面板外面自動收起
+document.addEventListener('click', e => document.querySelectorAll('.sp-pick[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+
+function speciesOptions(sel) {
+  return SPECIES.map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+}
+
+function renderPlanned() {
+  const el = document.getElementById('planned');
+  el.innerHTML = DATA.planned.map(t => {
+    const f = t.forecast, days = Math.round((new Date(t.date) - new Date(new Date().toDateString())) / 864e5);
+    let body = f?.error ? `<div class="muted">${esc(f.error)}</div>` : '<div class="muted">日期已過，請回報這趟的結果</div>';
+    if (f && !f.error) {
+      const d = f.cond.day || {}, sp = f.species.slice(0, 4);
+      body = `<div class="plan-grid">
+        <div><b>海況</b>　<span class="badge g-${d.go_label}">${d.go_label || '–'}</span> <span class="tier tier-${f.cond.tier}">${f.cond.tier}</span><br>
+          風 ${fmt(d.wind_max)} m/s（${fmt(d.bf)}級）・浪 ${fmt(d.wave_max)} m<br>
+          流 ${d.current_class ? d.current_class + '流' : '–'}・水溫 ${fmt(d.sst, '°C')}${d.sst_obs ? '（衛星）' : ''}${d.sst_drop >= 1 ? ' ⚠降溫' : ''}${d.sst_obs?.range >= 1 ? `・周邊溫差 ${d.sst_obs.range}°C` : ''}
+          ${d.p_go != null ? `<br><span class="muted">歷年同期出海率 ${Math.round(d.p_go * 100)}%</span>` : ''}</div>
+        <div><b>潮汐</b>　農曆${f.moon.lunar_name}・${f.moon.tide_name}<br>${f.tide.extrema.map(x => `${x.type[0]}${x.time}`).join('　')}</div>
+        <div><b>目標魚</b><br>${sp.map(s => `<span class="${heatCls(s.score)}" style="border-radius:5px;padding:0 6px;font-weight:700" title="${esc(s.reasons.join('\n'))}">${s.score}</span> ${esc(s.name)}`).join('<br>') || '–'}</div>
+        <div><b>參考</b><br>去年同期本港：${f.history.last_year.length ? f.history.last_year.slice(0, 3).map(x => `${esc(x.species)} ${x.n}篇`).join('、') : '無紀錄'}<br>
+          我在此釣場：${f.history.profit.n ? `平均每趟 ${money(f.history.profit.avg_profit)}，賺錢率 ${f.history.profit.win_rate}%` : '尚無損益紀錄'}<br>
+          魚價 元/台斤（北部批發 上／中／下・釣友直售）：<br>${(t.species || '').split(',').filter(s => DATA.prices[s] || DATA.direct[s]).map(s => {
+            const tr = DATA.prices[s]?.tiers || {};
+            return `${esc(SPECIES.find(x => x.id === s)?.name || s)} ${tr.top?.jin ?? '–'}／${tr.mid?.jin ?? '–'}／${tr.low?.jin ?? '–'}・直售 ${DATA.direct[s]?.median ?? '–'}`;
+          }).join('<br>') || '–'}</div>
+      </div>`;
+    }
+    return `<div class="plan" id="plan-${t.id}">
+      <div class="plan-head">
+        <span class="when">${t.date.slice(5).replace('-', '/')}${t.depart_time ? ' ' + esc(t.depart_time) : ''}</span>
+        <span class="countdown">${days > 0 ? `還有 ${days} 天` : days === 0 ? '今天出發' : '已出發'}</span>
+        <b>${esc(t.boat || '（未填船家）')}</b><span>${esc(t.port)}</span>
+        <span class="muted">${esc(t.species_names.join('、'))}${t.method ? '・' + esc(t.method) : ''}${t.fare ? '・船資 ' + num(t.fare) : ''}${t.note ? '・' + esc(t.note) : ''}</span>
+        <span style="margin-left:auto" class="actions">
+          <button class="primary" onclick="openReport(${t.id})">出海回報</button>
+          <button onclick="openEdit(${t.id})">編輯</button>
+          <button onclick="del(${t.id})">取消</button></span>
+      </div>${body}<div id="rep-${t.id}"></div></div>`;
+  }).join('') || '<div class="empty">還沒有預定的船班</div>';
+}
+
+// ---------- 出海回報表單（支出明細＋漁獲明細）
+function reportForm(t, withHeader, editing = false) {
+  // editing = 修改已完成的紀錄：把原本的結果、心得、支出帶入
+  const expVal = item => {
+    if (editing) { const e = (t.expenses || []).find(x => x.item === item); return e ? e.amount ?? '' : ''; }
+    return item === '船資' && t?.fare ? t.fare : '';
+  };
+  const extraExp = editing ? (t.expenses || []).filter(e => !DATA.expense_items.includes(e.item)) : [];
+  const exp = [...DATA.expense_items, ...extraExp.map(e => e.item)].map(item => `<div class="row"><span style="min-width:120px">${esc(item)}</span>
+      <input type="number" data-exp="${esc(item)}" value="${esc(expVal(item))}" placeholder="金額" style="width:110px"></div>`).join('');
+  const head = withHeader ? `<div class="frm" style="margin-bottom:8px">
+      <input type="date" name="date" value="${esc(t?.date || '')}" required>
+      <input name="boat" placeholder="船家" value="${esc(t?.boat || '')}" list="boats" style="width:140px">
+      <select name="port_id">${PORTS.map(p => `<option value="${p.id}" ${p.id === t?.port_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+      ${speciesPicker((t?.species || '').split(',').filter(Boolean))}</div>` : '';
+  const res = editing && t.result ? t.result : 3;
+  return `<form class="report">${head}
+    <div class="frm"><b>結果</b>
+      <select name="result">${[5, 4, 3, 2, 1].map(v => `<option value="${v}" ${v === res ? 'selected' : ''}>${RESULT[v]}</option>`).join('')}</select>
+      <input name="method" placeholder="實際釣法" value="${esc(t?.method || '')}" style="width:140px">
+      <input name="note" placeholder="心得（流水、水溫、咬口時段、船長說法…）" value="${editing ? esc(t.note || '') : ''}" style="flex:1;min-width:200px"></div>
+    <h3>支出</h3><div class="rows exp">${exp}</div>
+    <h3>漁獲與販賣 <button type="button" onclick="addCatch(this)">＋ 加一種魚</button></h3>
+    <div class="rows catch-rows"></div>
+    <div class="muted" style="font-size:12px">金額可留白：會用「斤數 × 每斤單價」計算；勾「自留」= 自己吃或送人，以單價估值算進收入但不列入販賣地點比價</div>
+    <div class="actions" style="margin-top:8px"><button class="primary" type="submit">儲存</button>
+      <button type="button" onclick="this.closest('form').remove()">收起</button></div>
+  </form>`;
+}
+
+function addCatch(btn, c = {}) {
+  const rows = btn.closest('form').querySelector('.catch-rows');
+  const v = k => esc(c[k] ?? '');
+  rows.insertAdjacentHTML('beforeend', `<div class="row">
+    <select data-k="species_id" onchange="priceHint(this)">${speciesOptions(c.species_id)}</select>
+    <input data-k="count" type="number" placeholder="尾數" value="${v('count')}" style="width:70px">
+    <input data-k="weight_jin" type="number" step="0.1" placeholder="台斤" value="${v('weight_jin')}" style="width:70px">
+    <input data-k="place" list="places" placeholder="販賣地點（魚市/魚販/網路…）" value="${v('place')}" style="width:200px">
+    <input data-k="price_jin" type="number" placeholder="每台斤單價" value="${v('price_jin')}" style="width:110px">
+    <input data-k="amount" type="number" placeholder="金額" value="${v('amount')}" style="width:90px">
+    <label><input data-k="kept" type="checkbox" ${c.kept ? 'checked' : ''}> 自留</label>
+    <button type="button" onclick="this.parentElement.remove()">✕</button></div>`);
+  priceHint(rows.lastElementChild.querySelector('[data-k=species_id]'));
+}
+
+function priceHint(sel) {
+  const p = DATA.prices[sel.value];
+  const dp = DATA.direct[sel.value], tr = p?.tiers || {};
+  sel.parentElement.querySelector('[data-k=price_jin]').placeholder = dp ? `直售約 ${dp.median}/台斤` : tr.mid ? `批發中價 ${tr.mid.jin}/台斤` : '每台斤單價';
+  sel.parentElement.querySelector('[data-k=price_jin]').title = [p && `北部批發近 7 天（元/台斤）：上價 ${tr.top?.jin ?? '–'}（大尾）／中價 ${tr.mid?.jin ?? '–'}／下價 ${tr.low?.jin ?? '–'}（小尾）`,
+    dp && `釣友直售近一年：中位 ${dp.median} 元/台斤（${dp.low}～${dp.high}，${dp.n} 筆）`].filter(Boolean).join('\n');
+}
+
+function collect(form) {
+  const fd = new FormData(form);
+  const body = Object.fromEntries(fd);
+  body.species = checkedSpecies(form);
+  body.expenses = [...form.querySelectorAll('[data-exp]')].map(i => ({ item: i.dataset.exp, amount: i.value }));
+  body.catch = [...form.querySelectorAll('.catch-rows .row')].map(r => Object.fromEntries(
+    [...r.querySelectorAll('[data-k]')].map(i => [i.dataset.k, i.type === 'checkbox' ? i.checked : i.value])));
+  return body;
+}
+
+function openReport(id) {
+  const t = DATA.planned.find(x => x.id === id);
+  const box = document.getElementById('rep-' + id);
+  box.innerHTML = reportForm(t, false);
+  const form = box.querySelector('form');
+  addCatch(form.querySelector('button[onclick^="addCatch"]'));
+  form.onsubmit = async e => {
+    e.preventDefault();
+    await fetch(`/api/trips/${id}/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collect(form)) });
+    load();
+  };
+}
+
+function openEdit(id) {
+  const t = DATA.planned.find(x => x.id === id);
+  const box = document.getElementById('rep-' + id);
+  const sel = (t.species || '').split(',');
+  box.innerHTML = `<form class="report frm">
+    <input type="date" name="date" value="${t.date}" required>
+    <input name="boat" value="${esc(t.boat || '')}" placeholder="船家" list="boats" style="width:140px">
+    <select name="port_id">${PORTS.map(p => `<option value="${p.id}" ${p.id === t.port_id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+    ${speciesPicker(sel)}
+    <input name="method" value="${esc(t.method || '')}" placeholder="釣法" style="width:150px">
+    <input name="depart_time" type="time" value="${esc(t.depart_time || '')}" title="集合時間">
+    <input name="fare" type="number" value="${t.fare ?? ''}" placeholder="船資" style="width:90px">
+    <input name="note" value="${esc(t.note || '')}" placeholder="備註" style="flex:1;min-width:200px">
+    <button class="primary" type="submit">儲存</button><button type="button" onclick="this.closest('form').remove()">取消編輯</button>
+  </form>`;
+  const form = box.querySelector('form');
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(form));
+    body.species = checkedSpecies(form);
+    await fetch('/api/trips/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    load();
+  };
+}
+
+function openPast() {
+  const box = document.getElementById('pastForm');
+  box.innerHTML = reportForm(null, true);
+  const form = box.querySelector('form');
+  addCatch(form.querySelector('button[onclick^="addCatch"]'));
+  form.onsubmit = async e => {
+    e.preventDefault();
+    await fetch('/api/trips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collect(form)) });
+    box.innerHTML = ''; load();
+  };
+}
+
+// 修改已完成的出海紀錄：表單開在該列下方，資料全部帶入
+function openDoneEdit(id) {
+  document.querySelectorAll('tr.edit-row').forEach(r => r.remove());
+  const t = DATA.trips.find(x => x.id === id);
+  const tr = document.getElementById('done-' + id);
+  tr.insertAdjacentHTML('afterend', `<tr class="edit-row"><td colspan="11"></td></tr>`);
+  const cell = tr.nextElementSibling.firstElementChild;
+  cell.innerHTML = reportForm(t, true, true);
+  const form = cell.querySelector('form');
+  const addBtn = form.querySelector('button[onclick^="addCatch"]');
+  // 「收起」要連同這一列一起移除
+  form.querySelector('button[onclick*="remove()"]').onclick = () => cell.parentElement.remove();
+  (t.catch || []).forEach(c => addCatch(addBtn, c));
+  if (!(t.catch || []).length) addCatch(addBtn);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const body = collect(form); body.kind = 'done';
+    await fetch('/api/trips/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    load();
+  };
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function del(id) {
+  if (!confirm('刪除這筆紀錄？')) return;
+  await fetch('/api/trips/' + id, { method: 'DELETE' }); load();
+}
+
+// ---------- 帳本統計
+function groupTable(title, rows) {
+  if (!rows.length) return '';
+  return `<h3>${title}</h3><div class="scroll"><table class="t"><tr><th></th><th>趟數</th><th>花費</th><th>收入</th><th>損益</th><th>平均每趟</th><th>賺錢率</th></tr>
+    ${rows.map(r => `<tr><td>${esc(r.key)}</td><td class="n">${r.n}</td><td class="n">${num(r.cost)}</td><td class="n">${num(r.revenue)}</td>
+      <td class="n">${money(r.profit)}</td><td class="n">${money(r.avg_profit)}</td><td class="n">${r.win_rate}%</td></tr>`).join('')}</table></div>`;
+}
+
+function renderStats() {
+  const s = DATA.stats, el = document.getElementById('stats');
+  if (!s.n) { el.innerHTML = '<div class="empty">出海回報填了支出與漁獲後，這裡會統計損益、各船家/釣場/月份的賺賠、魚種均價與各販賣地點的價格比較</div>'; return; }
+  el.innerHTML = `<div class="kpis">
+      <div class="kpi"><div class="muted">記帳趟數</div><div class="v">${s.n}</div></div>
+      <div class="kpi"><div class="muted">總花費</div><div class="v">${num(s.cost)}</div></div>
+      <div class="kpi"><div class="muted">總收入</div><div class="v">${num(s.revenue)}</div></div>
+      <div class="kpi"><div class="muted">總損益</div><div class="v">${money(s.profit)}</div></div>
+      <div class="kpi"><div class="muted">平均每趟</div><div class="v">${money(s.avg_profit)}</div></div>
+      <div class="kpi"><div class="muted">賺錢的趟數比例</div><div class="v">${s.win_rate}%</div></div></div>
+    ${groupTable('依船家', s.by_boat)}${groupTable('依釣場', s.by_port)}${groupTable('依月份', s.by_month)}
+    ${s.species.length ? `<h3>魚種</h3><table class="t"><tr><th>魚種</th><th>尾數</th><th>台斤</th><th>平均尾重（台斤）</th><th>我賣的平均每台斤</th><th>北部批發 上／中／下</th><th>估值</th></tr>
+      ${s.species.map(x => { const sid = SPECIES.find(z => z.name === x.name)?.id, tr = DATA.prices[sid]?.tiers || {};
+        return `<tr><td>${esc(x.name)}</td><td class="n">${num(x.count)}</td><td class="n">${x.jin}</td>
+        <td class="n">${x.count ? (x.jin / x.count).toFixed(1) : '–'}</td><td class="n">${x.avg_price ? num(x.avg_price) : '–'}</td>
+        <td class="n">${tr.top ? `${tr.top.jin}／${tr.mid?.jin ?? '–'}／${tr.low?.jin ?? '–'}` : '–'}</td><td class="n">${num(x.value)}</td></tr>`; }).join('')}</table>
+      <div class="muted" style="font-size:12px">對照：同魚種平均尾重越大，通常越接近批發「上價」；你賣的價格高於上價，代表直售通路有加分。</div>` : ''}
+    ${s.places.length ? `<h3>販賣地點價格比較（每斤）</h3><table class="t"><tr><th>魚種</th><th>販賣地點</th><th>次數</th><th>賣出斤數</th><th>平均每斤</th></tr>
+      ${s.places.map(x => `<tr><td>${esc(x.species)}</td><td>${esc(x.place)}</td><td class="n">${x.n}</td><td class="n">${x.jin}</td>
+        <td class="n"><b>${num(x.avg_price)}</b></td></tr>`).join('')}</table>` : ''}`;
+}
+
+function renderDone() {
+  const sm = DATA.summary;
+  document.getElementById('backtest').textContent = sm.n_good && sm.n_bad
+    ? `預測回測：好的 ${sm.n_good} 趟平均 ${sm.good_avg} 分、差的 ${sm.n_bad} 趟平均 ${sm.bad_avg} 分，好壞排序正確率 ${sm.pair_accuracy}%（50% = 跟亂猜一樣；紀錄越多越準）` : '';
+  document.getElementById('done').innerHTML = `<tr><th>日期</th><th>船家／釣場</th><th>目標／釣法</th><th>結果</th><th>漁獲</th>
+      <th>花費</th><th>收入</th><th>損益</th><th>回測</th><th>心得</th><th></th></tr>` +
+    DATA.trips.map(t => {
+      const h = t.hindcast;
+      const ca = (t.catch || []).map(c => `${esc(c.name)} ${c.count ? c.count + '尾' : ''}${c.weight_jin ? c.weight_jin + '斤' : ''}${c.place && !c.kept ? '→' + esc(c.place) + (c.price_jin ? '@' + c.price_jin : '') : c.kept ? '（自留）' : ''}`).join('<br>');
+      return `<tr id="done-${t.id}"><td data-label="日期"><b>${t.date}</b></td><td data-label="船家／釣場">${esc(t.boat || '')}<div class="muted">${esc(t.port)}</div></td>
+        <td data-label="目標／釣法">${esc(t.species_names.join('、'))}<div class="muted">${esc(t.method || '')}</div></td>
+        <td data-label="結果" class="res-${t.result}">${t.result_label}</td><td data-label="漁獲" style="font-size:12px">${ca || '<span class="muted">–</span>'}</td>
+        <td data-label="花費" class="n">${num(t.cost)}</td><td data-label="收入" class="n">${num(t.revenue)}</td><td data-label="損益" class="n">${money(t.profit)}</td>
+        <td data-label="回測" class="n">${h ? `<b title="${esc(h.reasons.join('\n'))}">${h.score}</b>` : '–'}</td>
+        <td data-label="心得" style="font-size:12px">${esc(t.note || '')}</td><td class="del"><button onclick="openDoneEdit(${t.id})">✏️ 編輯</button> <button onclick="del(${t.id})" title="刪除">✕ 刪除</button></td></tr>`;
+    }).join('');
+}
+
+async function parseAnn() {
+  const text = document.getElementById('annText').value;
+  if (!text.trim()) return;
+  const r = await (await fetch('/api/parse_booking', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                         body: JSON.stringify({ text }) })).json();
+  const f = document.getElementById('bookForm');
+  for (const k of ['date', 'boat', 'method', 'depart_time', 'fare', 'note']) if (r[k] !== '') f[k].value = r[k];
+  if (r.port_id) f.port_id.value = r.port_id;
+  mountPicker(f, r.species);
+  const miss = [!r.date && '日期', !r.port_id && '釣場', !r.boat && '船家'].filter(Boolean);
+  document.getElementById('annMsg').textContent = miss.length ? `已填入；請補上：${miss.join('、')}` : '已填入，確認後按「預定」';
+}
+
+document.getElementById('bookForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target, body = Object.fromEntries(new FormData(f));
+  body.species = checkedSpecies(f); body.kind = 'booking';
+  await fetch('/api/trips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  f.reset(); mountPicker(f, []); load();
+};
+mountPicker(document.getElementById('bookForm'), []);
+load();
+</script>
+</body>
+</html>
