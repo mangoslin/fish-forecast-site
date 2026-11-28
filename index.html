@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<script src="api.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🎣%3C/text%3E%3C/svg%3E">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>船釣魚情預測</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>🎣 船釣魚情預測</h1>
+    <div class="muted" id="meta">載入中…</div>
+  </div>
+  <div class="actions">
+    <a href="trips.html"><button class="primary">🗓️ 船班與帳本</button></a>
+    <a href="prices.html"><button>💲 魚價行情</button></a>
+    <a href="direct.html"><button>🧑‍🎣 直售價</button></a>
+    
+  </div>
+  <div id="jobLog"></div>
+</header>
+<nav class="secnav">
+  <a href="#sec-ask">問問看</a><a href="#sec-top">推薦</a><a href="#sec-focus">我的關注</a><a href="#sec-port">各港海況</a>
+  <a href="#sec-heat">魚種評分</a><a href="#sec-charts">潮汐風浪</a><a href="#sec-reports">FB 魚情</a>
+</nav>
+
+<main>
+  <section class="card" id="sec-ask">
+    <h2>🔎 問問看</h2>
+    <form id="askForm" class="actions">
+      <input id="askQ" placeholder="例：南寮漁港 10/24 小搞搞 目標魚 石斑 嘉鱲 等底棲魚　／　北三 下週六 紅甘 弓角　／　基隆 明天 透抽"
+             style="flex:1;min-width:260px;font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--card);color:var(--ink)">
+      <button class="primary" type="submit">預測</button>
+    </form>
+    <div id="askOut" style="margin-top:12px"></div>
+  </section>
+
+  <section class="card" id="sec-top">
+    <div class="actions" style="justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0" id="topTitle">推薦組合</h2>
+      <div class="range" id="range">
+        <button data-r="7">7 天</button><button data-r="14">14 天</button><button data-r="30">30 天</button>
+      </div>
+    </div>
+    <div class="top-grid" id="top"></div>
+    <div class="muted" style="margin-top:8px">
+      <span class="tier">預報</span> 1~9 天：完整風浪預報　<span class="tier tier-延伸">延伸</span> 10~16 天：風預報＋估浪，混合歷史同期
+      　<span class="tier tier-氣候">氣候</span> 17~30 天：歷史同期出海率＋潮汐月相＋去年同期魚情（僅供報船班參考）</div>
+  </section>
+
+  <section class="card" id="sec-focus">
+    <h2>⭐ 我的關注</h2>
+    <div id="focus"></div>
+    <div class="muted" style="margin-top:6px">格子 = 該釣場當日關注魚種最高分；紅框 = 不建議出海。點格子切到該釣場。關注項目可在 config.py 的 FOCUS 修改。</div>
+  </section>
+
+  <section class="card sticky-tabs" id="sec-port">
+    <div class="tabs" id="tabs"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="portTitle">每日海況</h2>
+    <div class="days" id="days"></div>
+  </section>
+
+  <section class="card" id="sec-heat">
+    <h2>魚種評分（綜合 = 魚況潛力 × 出海條件）</h2>
+    <div class="scroll"><table class="heat" id="heat"></table></div>
+    <div class="muted" style="margin-top:6px">● = 本港近期有 FB 魚情；◆ = 去年同期有魚情。淡色 = 氣候推估。滑鼠停在格子上看評分依據；點日期卡看當日明細。</div>
+  </section>
+
+  <section class="two">
+    <div class="card">
+      <h2 id="detailTitle">當日明細</h2>
+      <div id="detail" class="detail"></div>
+    </div>
+    <div class="card">
+      <h2 id="histTitle">歷史魚情（FB，近 12 個月）</h2>
+      <div class="scroll"><table class="hist" id="hist"></table></div>
+      <div class="muted" style="margin-top:6px">數字 = 本港提到該魚種的貼文篇數，顏色越深魚況越好。資料量取決於「回補歷史魚情」進度。</div>
+    </div>
+  </section>
+
+  <section class="two" id="sec-charts">
+    <div class="card"><h2>潮位 (m)</h2><div class="chart-box"><canvas id="tideChart"></canvas></div></div>
+    <div class="card"><h2>風速 (m/s) ／ 浪高 (m)：多模式比較</h2><div class="chart-box"><canvas id="seaChart"></canvas></div></div>
+  </section>
+
+  <section class="card" id="sec-reports">
+    <div class="actions" style="justify-content:space-between">
+      <h2 style="margin:0">近期 FB 魚情</h2>
+      <div class="actions">
+        <select id="fPort"><option value="">全部港口</option><option value="keelung">基隆</option><option value="fuguei">富貴角/北海岸</option><option value="tamsui">淡水外海</option><option value="ne_coast">東北角</option><option value="guishan">龜山島/宜蘭</option><option value="hsinchu">新竹40米</option><option value="hsinchu80">新竹80米</option><option value="houlong">後龍/外埔</option><option value="taichung">台中</option><option value="changhua">彰化</option><option value="beisan">北三</option><option value="dayudong">大嶼東</option><option value="diaoyutai">釣魚台</option></select>
+        <select id="fSpecies"><option value="">全部魚種</option><option value="hairtail">白帶魚</option><option value="oil_hairtail">油帶魚</option><option value="amberjack">紅甘(紅魽)</option><option value="yellowtail">青甘</option><option value="bigeye">大目(紅大目)</option><option value="longtail">長尾鳥</option><option value="grouper">石斑</option><option value="dentex">赤鯮</option><option value="mahi">鬼頭刀</option><option value="bonito">煙仔</option><option value="bigfin_squid">軟絲</option><option value="loligo">透抽</option><option value="tilefish">馬頭</option><option value="scorpionfish">凸目石狗公</option><option value="croaker">鮸魚</option><option value="terapon">花身雞魚</option><option value="threadfin_bream">紅條</option><option value="seabass">海鱸</option><option value="grunt">黃雞(星雞)</option><option value="blackbream">黑鯛</option><option value="cobia">海鱺</option><option value="spanish_mackerel">土魠</option><option value="rosy_seabass">黑喉</option><option value="chub_mackerel">鯖魚</option><option value="horse_mackerel">竹筴魚</option><option value="filefish">剝皮魚</option><option value="white_croaker">白姑魚</option><option value="giant_trevally">牛港鰺(GT)</option><option value="tuna">鮪魚</option><option value="billfish">旗魚</option><option value="cuttlefish">花枝</option><option value="seabream">真鯛(嘉鱲)</option><option value="emperor">龍占</option></select>
+        <select id="fMethod"><option value="">全部釣法</option><option value="jig">鐵板</option><option value="bowjig">美國弓角</option><option value="drift">蓋流</option><option value="yudoumaru">遊動丸</option><option value="tenya">天亞/鯛拉巴</option><option value="slow_bottom">小搞/底棲</option><option value="live_bait">活餌</option><option value="deep">深海電捲</option><option value="lure">路亞/拋投</option><option value="egi">木蝦</option><option value="hairtail_rig">白帶仕掛</option></select>
+        <select id="fDays"><option value="3">3 天</option><option value="7">7 天</option><option value="14" selected>14 天</option><option value="30">30 天</option></select>
+      </div>
+    </div>
+    <div class="muted" style="font-size:12px;margin:6px 0">只列出魚況摘要，內容請點「原文」到 FB 看原始貼文。</div>
+    <div id="reports"></div>
+  </section>
+  <div class="muted" style="font-size:12px;text-align:center;padding:4px 16px 20px">
+    資料來源：Open-Meteo 氣象海況模式、NOAA 衛星水溫、農業部漁產品交易行情、FB 公開貼文。預測僅供參考，出海請以官方海象與船家判斷為準。</div>
+</main>
+
+<script>
+let data = null, portId = localGet('port') || 'keelung', dayIdx = 0, range = +(localGet('range') || 14);
+const vis = days => days.slice(0, range);
+const isWk = label => /[六日]\)/.test(label);
+document.querySelectorAll('#range button').forEach(b => b.onclick = () => {
+  range = +b.dataset.r; localSet('range', range); if (dayIdx >= range) dayIdx = 0;
+  renderTop(); renderFocus(); renderPort();
+});
+const charts = {};
+
+function localGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function localSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const heatCls = s => s >= 80 ? 'h4' : s >= 65 ? 'h3' : s >= 50 ? 'h2' : s >= 35 ? 'h1' : 'h0';
+const hl = (text, kws) => {   // 標示關鍵字
+  let out = esc(text);
+  for (const k of kws || []) out = out.split(esc(k)).join(`<mark>${esc(k)}</mark>`);
+  return out;
+};
+const fmt = (v, u = '') => v == null ? '–' : v + u;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+async function load() {
+  data = await (await fetch('/api/forecast')).json();
+  const m = data.meta;
+  const bf = data.backfill;
+  document.getElementById('meta').textContent =
+    `天氣更新：${(m.weather_updated || '尚未').replace('T', ' ')}　FB 更新：${(m.fb_updated || '尚未').replace('T', ' ')}` +
+    `　歷史回補：${bf.done}/${bf.total}（${bf.posts} 篇貼文）`;
+  renderTop(); renderFocus(); renderTabs(); renderPort();
+}
+
+function renderFocus() {
+  document.getElementById('focus').innerHTML = data.focus.map(f => {
+    const days = vis(f.rows.find(r => r.days.length)?.days || []);
+    const sub = [...f.species, ...f.methods].join('・') || '全魚種';
+    let t = '<div class="scroll"><table class="ftab"><tr><th></th>' + days.map(d => `<th class="${isWk(d.label) ? 'wk' : ''}">${d.label}</th>`).join('') + '</tr>';
+    for (const r of f.rows) {
+      t += `<tr><th class="sp">${esc(r.port)}</th>` + (r.days.length ? vis(r.days).map(c => `
+        <td class="${heatCls(c.score)} ${c.go_label === '不建議' ? 'go-bad' : ''} ${c.tier === '氣候' ? 'clim' : ''}" onclick="selectPort('${r.port_id}','${c.date}')"
+            title="${esc(c.name)}｜${c.go_label}（${c.tier}）｜風 ${fmt(c.wind)} m/s 浪 ${fmt(c.wave)} m"><b>${c.score}</b><br>${esc(c.name.replace(/\(.*\)/, ''))}</td>`).join('')
+        : `<td colspan="${days.length}" class="muted">尚無天氣資料</td>`) + '</tr>';
+    }
+    t += '</table></div>';
+    const reps = f.reports.slice(0, 4).map(r => `
+      <div class="mini"><span class="muted">${r.post_date.slice(5)}</span>
+        ${r.ports.map(p => `<span class="tag">${esc(p)}</span>`).join('')}${r.species.map(s => `<span class="tag">${esc(s)}</span>`).join('')}
+        ${r.methods.map(m => `<span class="tag m">${esc(m)}</span>`).join('')}
+        <span class="${r.sentiment > 0.5 ? 's-pos' : r.sentiment < 0 ? 's-neg' : ''}">${r.sentiment > 0 ? '+' : ''}${r.sentiment}</span>
+        ${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">原文</a>` : ''}
+        <div class="txt">${hl(r.snippet, r.keywords)}</div></div>`).join('')
+      || '<div class="mini muted">近 14 天沒有相關 FB 貼文</div>';
+    return `<div class="focus"><h3>${esc(f.name)} <span class="muted">（${esc(sub)}）</span></h3>${t}${reps}</div>`;
+  }).join('');
+}
+
+function renderTop() {
+  document.querySelectorAll('#range button').forEach(b => b.classList.toggle('on', +b.dataset.r === range));
+  document.getElementById('topTitle').textContent = `未來 ${range} 天推薦組合`;
+  const picks = [];
+  for (const p of data.ports) for (const d of vis(p.days)) for (const sp of d.species.slice(0, 3)) {
+    const st = sp.night ? d.night : d.day;
+    picks.push({ ...sp, date: d.date, label: d.label, port: p.name, port_id: p.id, go_label: st.go_label, tier: st.tier });
+  }
+  picks.sort((a, b) => b.score - a.score);
+  const el = document.getElementById('top');
+  el.innerHTML = picks.slice(0, 12).map(t => `
+    <div class="pick" onclick="selectPort('${t.port_id}','${t.date}')">
+      <span class="score">${t.score}</span>
+      <div><b>${esc(t.name)}</b>${t.night ? ' 🌙' : ''}</div>
+      <div class="muted">${t.label}・${esc(t.port)}<span class="tier tier-${t.tier}">${t.tier}</span></div>
+      <span class="badge g-${t.go_label}">${t.go_label}</span>
+      ${t.n_reports ? `<span class="tag">FB ${t.n_reports} 篇</span>` : ''}${t.n_hist ? `<span class="tag">去年同期 ${t.n_hist}</span>` : ''}
+    </div>`).join('') || '<div class="empty">尚無資料，請先更新天氣海況</div>';
+}
+
+function renderTabs() {
+  document.getElementById('tabs').innerHTML = data.ports.map(p =>
+    `<button class="tab ${p.id === portId ? 'on' : ''}" onclick="selectPort('${p.id}')">${esc(p.name)}</button>`).join('');
+}
+
+function selectPort(id, date) {
+  portId = id; localSet('port', id);
+  const port = data.ports.find(p => p.id === id);
+  dayIdx = date ? Math.max(0, port.days.findIndex(d => d.date === date)) : 0;
+  renderTabs(); renderPort();
+  if (date) document.getElementById('days').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+function renderPort() {
+  const port = data.ports.find(p => p.id === portId) || data.ports[0];
+  document.getElementById('portTitle').textContent = `${port.name}・每日海況`;
+  document.getElementById('days').innerHTML = vis(port.days).map((d, i) => `
+    <div class="day t-${d.tier} ${i === dayIdx ? 'on' : ''}" onclick="dayIdx=${i};renderPort();if (innerWidth < 860) document.getElementById('detailTitle').scrollIntoView({behavior:'smooth'})">
+      <div class="d">${d.label}<span class="tier tier-${d.tier}">${d.tier}</span></div>
+      <div class="muted">農曆${d.lunar_name}・${d.tide_name}・月光${Math.round(d.illumination * 100)}%</div>
+      <div style="margin-top:4px">日 <span class="badge g-${d.day.go_label}">${d.day.go_label}</span>
+        夜 <span class="badge g-${d.night.go_label}">${d.night.go_label}</span></div>
+      <div class="kv">
+        <span>風</span><span>${fmt(d.day.wind_max)} m/s（${fmt(d.day.bf)}級）陣 ${fmt(d.day.gust_max)}</span>
+        <span>浪</span><span>${fmt(d.day.wave_max)} m・湧 ${fmt(d.day.swell)} m</span>
+        <span>水溫</span><span>${fmt(d.day.sst, '°C')}${d.day.sst_obs ? `<span class="muted" style="font-size:11px">（衛星 ${d.day.sst_obs.date.slice(5)}）</span>` : ''}${d.day.sst_drop >= 1 ? ' ⚠降溫' : ''}${d.day.sst_obs?.range >= 1 ? `<br><span class="muted" style="font-size:11px">周邊溫差 ${d.day.sst_obs.range}°C（潮境）</span>` : ''}</span>
+        <span>潮差</span><span>${fmt(d.tide_range, ' m')}</span>
+        <span>潮時</span><span>${d.tides.map(t => `${t.type[0]}${t.time}`).join(' ') || '–'}</span>
+        <span>降雨</span><span>${fmt(d.day.rain, '%')}</span>
+        ${d.day.p_go != null ? `<span>同期</span><span>歷年出海率 ${Math.round(d.day.p_go * 100)}%</span>` : ''}
+      </div>
+      ${d.day.models?.OM ? `<div class="muted" style="margin-top:4px;font-size:12px" title="各模式日間最大風速 / 浪高（出海指數取各模式次高值）">
+        風 ${['OM', 'GFS', 'EC', 'JMA', 'ICON'].filter(k => d.day.models[k]?.[0] != null).map(k => `${k} ${d.day.models[k][0]}`).join('・')}<br>
+        浪 ${['OM', 'EC浪', 'GFS浪', 'MF浪'].filter(k => d.day.models[k]?.[1] != null).map(k => `${k.replace('浪', '')} ${d.day.models[k][1]}`).join('・') || '–'}</div>`
+        : `<div class="muted" style="margin-top:4px;font-size:12px">風浪為歷年同期中位數</div>`}
+    </div>`).join('');
+  renderHeat(port); renderDetail(port); renderCharts(port.id); renderHistory(port);
+}
+
+function renderHeat(port) {
+  const species = port.days[0]?.species.map(s => s.id) || [];
+  const names = Object.fromEntries((port.days[0]?.species || []).map(s => [s.id, s]));
+  // 依顯示天數的平均分排序
+  const days = vis(port.days);
+  const avg = id => days.reduce((a, d) => a + d.species.find(s => s.id === id).score, 0) / days.length;
+  species.sort((a, b) => avg(b) - avg(a));
+  let h = '<tr><th></th>' + days.map(d => `<th class="${isWk(d.label) ? 'wk' : ''}">${d.label}</th>`).join('') + '</tr>';
+  for (const id of species) {
+    h += `<tr><th class="sp">${esc(names[id].name)}${names[id].night ? ' 🌙' : ''}</th>`;
+    for (const d of days) {
+      const s = d.species.find(x => x.id === id);
+      const mark = s.n_reports ? 'fbdot' : s.n_hist ? 'histdot' : '';
+      h += `<td class="${heatCls(s.score)} ${mark} ${d.tier === '氣候' ? 'clim' : ''}" title="${esc(s.reasons.join('\n'))}">${s.score}</td>`;
+    }
+    h += '</tr>';
+  }
+  document.getElementById('heat').innerHTML = h;
+}
+
+function renderDetail(port) {
+  const d = port.days[dayIdx];
+  if (!d) return;
+  document.getElementById('detailTitle').textContent = `${port.name} ${d.label} 明細`;
+  const tides = d.tides.map(t => `${t.type} ${t.time}（${t.h} m）`).join('、') || '–';
+  document.getElementById('detail').innerHTML = `
+    <div class="muted">日出 ${d.sunrise || '–'}・日落 ${d.sunset || '–'}・農曆${d.lunar_name}（${d.tide_name}）・${tides}</div>
+    <div class="muted">夜間：風 ${fmt(d.night.wind_max)} m/s（${fmt(d.night.bf)}級）・浪 ${fmt(d.night.wave_max)} m・海流 ${fmt(d.day.current)} km/h</div>
+    <ol style="padding-left:20px;margin:10px 0 0">${d.species.slice(0, 6).map(s => `
+      <li><b>${esc(s.name)}</b>（${esc(s.method)}）— 綜合 <b>${s.score}</b>・魚況潛力 ${s.fish}
+        ${s.activity != null ? `・FB 魚情 ${s.activity}` : ''}
+        <div class="muted">${esc(s.reasons.join('｜'))}</div></li>`).join('')}</ol>`;
+}
+
+const hourlyCache = {};
+async function renderCharts(id) {
+  const full = hourlyCache[id] || (hourlyCache[id] = await (await fetch('/api/hourly/' + id)).json());
+  const n = range * 24;
+  const h = Object.fromEntries(Object.entries(full).map(([k, v]) => [k, v.slice(0, n)]));
+  const labels = h.time.map(t => `${+t.slice(5, 7)}/${+t.slice(8, 10)} ${t.slice(11, 13)}時`);
+  const grid = css('--line'), tick = css('--muted');
+  const base = { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { labels: { color: tick, boxWidth: 12 } } },
+    scales: { x: { ticks: { color: tick, maxTicksLimit: 8, maxRotation: 0 }, grid: { color: grid } } } };
+  const draw = (key, cfg) => { charts[key]?.destroy(); charts[key] = new Chart(document.getElementById(key), cfg); };
+  draw('tideChart', { type: 'line', data: { labels, datasets: [
+      { label: '潮位', data: h.sea_level, borderColor: css('--accent'), backgroundColor: css('--accent-soft'),
+        fill: true, pointRadius: 0, tension: .35 }] },
+    options: { ...base, scales: { ...base.scales, y: { ticks: { color: tick }, grid: { color: grid } } } } });
+  const has = k => h[k].some(v => v != null);
+  const line = (label, key, color, axis, dash) => has(key) && { label, data: h[key], borderColor: color, borderDash: dash,
+    borderWidth: dash ? 1.5 : 2, pointRadius: 0, tension: .3, yAxisID: axis };
+  const ds = [
+    line('風 OM', 'om_wind', css('--poor'), 'y'), line('風 GFS', 'gfs_wind', css('--ok'), 'y', [5, 3]),
+    line('風 EC', 'ec_wind', css('--bad'), 'y', [5, 3]), line('風 JMA', 'jma_wind', css('--good'), 'y', [2, 2]),
+    line('浪 OM', 'om_wave', css('--accent'), 'y2'), line('浪 EC', 'ec_wave', css('--accent'), 'y2', [5, 3]),
+    line('浪 GFS', 'gfs_wave', css('--muted'), 'y2', [2, 2]),
+  ].filter(Boolean);
+  draw('seaChart', { type: 'line', data: { labels, datasets: ds },
+    options: { ...base, scales: { ...base.scales,
+      y: { position: 'left', ticks: { color: tick }, grid: { color: grid }, title: { display: true, text: 'm/s', color: tick } },
+      y2: { position: 'right', ticks: { color: tick }, grid: { display: false }, title: { display: true, text: 'm', color: tick } } } } });
+}
+
+const histCache = {};
+async function renderHistory(port) {
+  document.getElementById('histTitle').textContent = `${port.name}・歷史魚情（FB，近 12 個月）`;
+  const hd = histCache[port.id] || (histCache[port.id] = await (await fetch('/api/history/' + port.id)).json());
+  const shade = c => !c ? '' : c.s >= 2 ? 'h4' : c.s >= 1 ? 'h3' : c.s > 0 ? 'h2' : 'h1';
+  let t = '<tr><th></th>' + hd.months.map(m => `<th>${m.slice(2, 4)}/${+m.slice(5)}</th>`).join('') + '</tr>';
+  const rows = hd.species.filter(sp => sp.cells.some(Boolean));
+  for (const sp of rows) {
+    t += `<tr><th class="sp">${esc(sp.name)}</th>` + sp.cells.map((c, i) =>
+      `<td class="${shade(c)}" title="${hd.months[i]}：${c ? `${c.n} 篇，平均魚況 ${c.s}` : '無貼文'}">${c ? c.n : ''}</td>`).join('') + '</tr>';
+  }
+  document.getElementById('hist').innerHTML = rows.length ? t
+    : `<tr><td class="empty">${esc(port.name)} 還沒有歷史魚情，請按「回補歷史魚情」</td></tr>`;
+}
+
+async function loadReports() {
+  const q = new URLSearchParams({ port: fPort.value, species: fSpecies.value, method: fMethod.value, days: fDays.value });
+  const rows = await (await fetch('/api/reports?' + q)).json();
+  document.getElementById('reports').innerHTML = rows.map(r => `
+    <div class="report">
+      <div class="muted">釣況日 ${r.post_date}・發文 ${r.time_confident ? r.post_time.replace('T', ' ').slice(5, 16) : '時間不明'}
+        ${r.ports.map(p => `<span class="tag">${esc(p)}</span>`).join('')}
+        ${r.species.map(s => `<span class="tag">${esc(s)}</span>`).join('')}
+        ${r.methods.map(m => `<span class="tag m">${esc(m)}</span>`).join('')}
+        <span class="${r.sentiment > 0.5 ? 's-pos' : r.sentiment < 0 ? 's-neg' : ''}">魚況 ${r.sentiment > 0 ? '+' : ''}${r.sentiment}</span>
+        ${r.count ? `・${r.count} 尾` : ''}${r.is_ad ? '・<span class="tag">船家廣告</span>' : ''}
+        ${r.url ? `・<a href="${esc(r.url)}" target="_blank" rel="noopener">原文</a>` : ''}</div>
+      ${r.snippet ? `<div class="snip">${hl(r.snippet, r.keywords)}</div>` : r.keywords?.length ? `<div>${r.keywords.slice(0, 6).map(k => `<mark>${esc(k)}</mark>`).join(' ')}</div>` : ''}
+      ${r.photos.length ? `<div class="thumbs">${r.photos.slice(0, 4).map(p =>
+        `<a href="/photos/${encodeURIComponent(p)}" target="_blank"><img src="/photos/${encodeURIComponent(p)}" loading="lazy" alt=""></a>`).join('')}</div>` : ''}
+      ${r.text ? `<details><summary class="muted">全文</summary><div class="txt">${esc(r.text)}</div></details>` : ''}
+    </div>`).join('') || '<div class="empty">此條件下沒有 FB 魚情。</div>';
+}
+
+async function runJob(name) {
+  const r = await (await fetch('/api/run/' + name, { method: 'POST' })).json();
+  if (!r.started) alert('此工作已在執行中');
+  pollJobs();
+}
+
+let polling = null;
+async function pollJobs() {
+  const j = await (await fetch('/api/jobs')).json();
+  let anyRunning = false, log = [];
+  for (const [k, v] of Object.entries(j)) {
+    document.getElementById('btn-' + k).disabled = v.running;
+    if (v.running) { anyRunning = true; log.push(...v.log.slice(-2)); }
+  }
+  document.getElementById('jobLog').textContent = log.join('\n');
+  clearTimeout(polling);
+  if (anyRunning) polling = setTimeout(pollJobs, 3000);
+  else if (polling !== null) {
+    polling = null;
+    for (const c of [hourlyCache, histCache]) for (const k in c) delete c[k];
+    await load(); loadReports();
+  }
+}
+
+let askChart = null;
+document.getElementById('askForm').onsubmit = async e => {
+  e.preventDefault();
+  const q = document.getElementById('askQ').value.trim();
+  if (!q) return;
+  const out = document.getElementById('askOut');
+  out.innerHTML = '<div class="muted">計算中…</div>';
+  const r = await (await fetch('/api/ask?q=' + encodeURIComponent(q))).json();
+  if (r.error) { out.innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  const c = r.cond, d = c.day, m = r.moon, h = r.history, tide = r.tide;
+  const money = n => n == null ? '–' : `<span class="${n >= 0 ? 'money-pos' : 'money-neg'}">${n >= 0 ? '+' : ''}${n.toLocaleString()}</span>`;
+  const turn = tide.extrema.map(t => `<span>${t.type} <b>${t.time}</b>（${t.h} m）</span>`).join('') || '–';
+  out.innerHTML = `
+    <div class="big">${esc(r.port)}　${r.label}　<span class="tier tier-${c.tier}">${esc(c.tier)}</span></div>
+    <div class="muted">農曆${m.lunar_name}・${m.tide_name}・月光 ${Math.round(m.illumination * 100)}%
+      ${r.methods.length ? '・釣法：' + esc(r.methods.join('、')) : ''}${r.lead > 0 ? `・距今 ${r.lead} 天` : r.lead < 0 ? '・過去日期（用實際海況回測）' : '・今天'}</div>
+    <div class="ask-grid" style="margin-top:10px">
+      <div class="ask-box"><h3>🌊 海況</h3>${d ? `
+        <div><span class="badge g-${d.go_label}">${d.go_label}</span>　日間出海指數 ${Math.round(d.go * 100)}%</div>
+        <div class="kv">
+          <span>風</span><span>${fmt(d.wind_max)} m/s（${fmt(d.bf)}級）${d.gust_max ? '陣 ' + d.gust_max : ''}</span>
+          <span>浪</span><span>${fmt(d.wave_max)} m</span>
+          <span>流</span><span>${d.current_class ? d.current_class + '流' : '–'}${d.current_max ? `（最大 ${d.current_max} km/h）` : ''}</span>
+          <span>水溫</span><span>${fmt(d.sst, '°C')}${d.sst_obs ? `（衛星實測 ${d.sst_obs.date.slice(5)}）` : '（模式）'}${d.sst_drop >= 1 ? `，比前 3 天低 ${d.sst_drop}°C ⚠` : d.sst_drop != null ? `，3 天變化 ${d.sst_drop > 0 ? '-' : '+'}${Math.abs(d.sst_drop)}°C` : ''}</span>
+          ${d.sst_obs?.range != null ? `<span>潮境</span><span>周邊 ±10 公里溫差 ${d.sst_obs.range}°C${d.sst_obs.range >= 1 ? '（明顯水溫鋒面）' : ''}</span>` : ''}
+          <span>降雨</span><span>${fmt(d.rain, '%')}</span>
+          ${d.p_go != null ? `<span>同期</span><span>歷年出海率 ${Math.round(d.p_go * 100)}%</span>` : ''}
+        </div>
+        ${d.models?.OM ? `<div class="muted" style="font-size:12px;margin-top:4px">風 ${['OM','GFS','EC','JMA','ICON'].filter(k => d.models[k]?.[0] != null).map(k => k + ' ' + d.models[k][0]).join('・')}<br>
+          浪 ${['OM','EC浪','GFS浪','MF浪'].filter(k => d.models[k]?.[1] != null).map(k => k.replace('浪','') + ' ' + d.models[k][1]).join('・')}</div>` : ''}`
+        : '<div class="muted">無資料</div>'}
+      </div>
+      <div class="ask-box"><h3>🌙 潮汐${tide.predicted ? '（調和分析推算）' : ''}</h3>
+        <div class="tide-wrap" style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center">
+          <div class="tide-list" style="font-size:13px">${turn}</div>
+          <div style="position:relative;height:120px"><canvas id="askTide"></canvas></div>
+        </div>
+        <div class="muted" style="font-size:12px;margin-top:4px">滿／乾潮前後是轉流時間，流向與流速會改變</div>
+      </div>
+      <div class="ask-box"><h3>🐟 魚種預測</h3>
+        ${r.species.map(s => `<div class="sp-row" title="${esc(s.reasons.join('\n'))}">
+          <span><b>${esc(s.name)}</b> <span class="muted">${esc(s.method)}</span></span>
+          <span class="${heatCls(s.score)}" style="border-radius:6px;padding:0 8px;font-weight:700">${s.score}</span></div>`).join('')
+          || '<div class="muted">無資料</div>'}
+        <div class="muted" style="font-size:12px;margin-top:4px">滑鼠停在魚種上看評分依據</div>
+      </div>
+      <div class="ask-box"><h3>📚 歷史</h3>
+        <div>去年同期（±10 天）本港 FB 魚情：${h.last_year.length ? h.last_year.map(x => `${esc(x.species)} ${x.n} 篇（魚況 ${x.avg}）`).join('、') : '沒有紀錄'}</div>
+        ${h.posts.map(p => `<div class="mini"><span class="muted">${p.date}</span> ${hl(p.snippet, p.keywords)}
+          ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">原文</a>` : ''}</div>`).join('')}
+        <div style="margin-top:8px"><b>我在這裡的出海</b>：${h.my_trips.length ? h.my_trips.map(t =>
+          `${t.date} ${esc(t.species_names.join('/'))} <span class="res-${t.result}">${['','槓龜','差','普通','好','爆桶'][t.result]}</span>`).join('、') : '還沒有紀錄'}</div>
+        <div style="margin-top:4px"><b>損益</b>：${h.profit.n ? `${h.profit.n} 趟，平均成本 ${h.profit.avg_cost.toLocaleString()}、收入 ${h.profit.avg_revenue.toLocaleString()}、每趟 ${money(h.profit.avg_profit)} 元，賺錢率 ${h.profit.win_rate}%`
+          : '<span class="muted">出海日誌填上成本與收入後，這裡會算出此釣場的平均損益</span>'}</div>
+      </div>
+    </div>`;
+  askChart?.destroy();
+  askChart = new Chart(document.getElementById('askTide'), { type: 'line',
+    data: { labels: tide.curve.map(x => x.t), datasets: [{ data: tide.curve.map(x => x.h), borderColor: css('--accent'),
+      backgroundColor: css('--accent-soft'), fill: true, pointRadius: 0, tension: .4 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } },
+      scales: { x: { ticks: { color: css('--muted'), maxTicksLimit: 6 }, grid: { display: false } },
+                y: { ticks: { color: css('--muted'), maxTicksLimit: 4 }, grid: { color: css('--line') } } } } });
+};
+
+document.addEventListener('click', e => document.querySelectorAll('details.tools[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+
+for (const id of ['fPort', 'fSpecies', 'fMethod', 'fDays']) document.getElementById(id).onchange = loadReports;
+load().then(loadReports);
+pollJobs();
+</script>
+</body>
+</html>

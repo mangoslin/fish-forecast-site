@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<script src="api.js"></script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🎣%3C/text%3E%3C/svg%3E">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>釣友直售價</title>
+<link rel="stylesheet" href="app.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bar input[type=search] { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 8px; padding: 6px 10px; flex: 1; min-width: 160px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 5px 12px; }
+.seg button.on { background: var(--accent); color: #fff; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 8px; }
+.sp { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: pointer; background: var(--card); }
+.sp:hover { border-color: var(--accent); }
+.sp.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.sp .big { font-size: 24px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.sp .big small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.sp .row { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.up { color: var(--bad); } .down { color: var(--good); }
+.offer { display: grid; grid-template-columns: 64px 1fr auto; gap: 4px 10px; padding: 9px 2px; border-bottom: 1px solid var(--line); }
+.offer .d { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.offer .p { font-size: 19px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.offer .p small { font-size: 11px; color: var(--muted); font-weight: 400; }
+.offer .s { grid-column: 2 / 4; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.offer.sold .p { text-decoration: line-through; color: var(--muted); }
+.more { text-align: center; margin-top: 10px; }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink);
+  padding: 14px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog::backdrop { background: rgba(0, 0, 0, .5); }
+dialog img { width: 100%; border: 1px solid var(--line); border-radius: 8px; display: block; }
+dialog .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; justify-content: flex-end; }
+@media (max-width: 640px) {
+  .grid { grid-template-columns: 1fr 1fr; }
+  .offer { grid-template-columns: 48px 1fr auto; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>🧑‍🎣 釣友／船家直售價</h1>
+    <div class="muted" id="meta">從 FB 貼文萃取的直售開價（元/台斤），不一定是成交價</div></div>
+  <div class="actions"><a href="index.html"><button>← 預測儀表板</button></a><a href="prices.html"><button>💲 批發魚價</button></a>
+    <a href="trips.html"><button>🗓️ 船班與帳本</button></a></div>
+</header>
+
+<main>
+  <section class="card">
+    <div class="bar">
+      <div class="seg" id="days"><button data-d="30">近 30 天</button><button data-d="90">近 90 天</button><button data-d="365">近一年</button></div>
+      <input type="search" id="q" placeholder="搜尋魚名、港口、規格、內文（例：紅甘、八斗子、3指）">
+      <label><input type="checkbox" id="hideSold"> 隱藏售完</label>
+      <button class="primary" id="shareBtn" title="依目前的期間、搜尋、選取的魚種產生圖片">📷 匯出圖片</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 id="gridTitle">魚種行情</h2>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">大字＝期間內開價中位數；▲▼＝近 30 天中位比一年中位；批發＝北部市場近 7 天上價。點魚種只看該魚，再點一次取消。</div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section class="card" id="trendBox" style="display:none">
+    <h2 id="trendTitle">月中位走勢</h2>
+    <div style="position:relative;height:200px"><canvas id="trend"></canvas></div>
+  </section>
+
+  <section class="card">
+    <h2 id="listTitle">最新開價</h2>
+    <div id="list"></div>
+    <div class="more"><button id="moreBtn" style="display:none">顯示更多</button></div>
+  </section>
+</main>
+
+<dialog id="shareDlg">
+  <div class="muted" style="font-size:13px;margin-bottom:8px">手機可直接長按圖片儲存；電腦按「複製圖片」後到 LINE 貼上（Ctrl+V）。</div>
+  <img id="shareImg" alt="直售價圖片">
+  <div class="acts">
+    <button id="shareNative" style="display:none">📤 分享</button>
+    <button id="shareCopy">📋 複製圖片</button>
+    <button id="shareSave" class="primary">⬇️ 下載</button>
+    <button onclick="shareDlg.close()">關閉</button>
+  </div>
+</dialog>
+
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+const median = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[(s.length - 1) >> 1] : null; };
+const daysAgo = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+let ALL = [], WHOLESALE = {}, DAYS = +(store('directDays') || 90), SEL = null, SHOW = 40, chart = null;
+let CARDS = [], LIST = [];   // 目前畫面上的魚種統計與開價清單（匯出圖片用）
+const periodName = () => DAYS === 365 ? '近一年' : `近 ${DAYS} 天`;
+
+// 與後端 summary 一致：剔除高於中位數 3 倍的誤判價格
+const clean = rs => { const m = median(rs.map(r => r.price)); return rs.filter(r => r.price <= m * 3); };
+
+function filtered() {
+  const kw = q.value.trim(), since = daysAgo(DAYS);
+  return ALL.filter(r => r.date >= since && (!hideSold.checked || !r.sold) &&
+    (!kw || [r.name, r.size, r.snippet, ...r.ports].some(x => (x || '').includes(kw))));
+}
+
+function render() {
+  document.querySelectorAll('#days button').forEach(b => b.classList.toggle('on', +b.dataset.d === DAYS));
+  const rows = filtered(), since30 = daysAgo(30);
+  const by = {};
+  for (const r of rows) (by[r.species_id] ||= []).push(r);
+  const year = {};
+  for (const r of ALL) (year[r.species_id] ||= []).push(r);
+  const cards = Object.entries(by).map(([sid, rs]) => {
+    rs = clean(rs);
+    const ps = rs.map(r => r.price), y = clean(year[sid]);
+    const m30 = median(clean(y.filter(r => r.date >= since30)).map(r => r.price)), my = median(y.map(r => r.price));
+    return { sid, name: rs[0].name, n: rs.length, med: median(ps), lo: Math.min(...ps), hi: Math.max(...ps),
+             last: rs[0].date, chg: m30 && my && DAYS > 30 ? Math.round((m30 / my - 1) * 100) : null };
+  }).sort((a, b) => b.n - a.n);
+  CARDS = cards;
+  document.getElementById('gridTitle').textContent = `魚種行情（${periodName()}・${rows.length} 筆開價）`;
+  document.getElementById('grid').innerHTML = cards.map(c => {
+    const w = WHOLESALE[c.sid];
+    return `<div class="sp ${SEL === c.sid ? 'on' : ''}" data-sid="${esc(c.sid)}">
+      <div><b>${esc(c.name)}</b>${c.n < 3 ? ' <span class="tag">樣本少</span>' : ''}</div>
+      <div class="big">${c.med}<small> 元/斤</small>${c.chg ? ` <small class="${c.chg > 0 ? 'up' : 'down'}">${c.chg > 0 ? '▲' : '▼'}${Math.abs(c.chg)}%</small>` : ''}</div>
+      <div class="row">${c.lo}～${c.hi}・${c.n} 筆・最近 ${c.last.slice(5)}</div>
+      <div class="row">${w ? `批發上價 ${w}（直售 ${(c.med / w).toFixed(1)} 倍）` : '批發 –'}</div></div>`;
+  }).join('') || '<div class="empty">這段期間沒有直售開價</div>';
+  document.querySelectorAll('.sp').forEach(e => e.onclick = () => { SEL = SEL === e.dataset.sid ? null : e.dataset.sid; SHOW = 40; render(); });
+
+  const list = LIST = SEL ? rows.filter(r => r.species_id === SEL) : rows;
+  const selName = SEL && ALL.find(r => r.species_id === SEL)?.name;
+  document.getElementById('listTitle').textContent = selName ? `${selName} 開價（${list.length} 筆）` : `最新開價（${list.length} 筆）`;
+  document.getElementById('list').innerHTML = list.slice(0, SHOW).map(r => `
+    <div class="offer ${r.sold ? 'sold' : ''}">
+      <div class="d">${r.date.slice(5)}</div>
+      <div><b>${esc(r.name)}</b>${r.size ? ` <span class="tag">${esc(r.size)}</span>` : ''}${r.ports.map(p => ` <span class="tag m">${esc(p)}</span>`).join('')}${r.sold ? ' <span class="tag">售完</span>' : ''}</div>
+      <div class="p">${r.price}<small> 元/斤</small></div>
+      <div class="s">${esc(r.snippet)} <a href="${esc(r.url)}" target="_blank" rel="noopener">原文 ↗</a></div>
+    </div>`).join('') || '<div class="empty">沒有符合的開價</div>';
+  moreBtn.style.display = list.length > SHOW ? '' : 'none';
+  drawTrend();
+}
+
+function drawTrend() {
+  const box = document.getElementById('trendBox');
+  chart?.destroy(); chart = null;
+  if (!SEL) { box.style.display = 'none'; return; }
+  const months = {};
+  for (const r of ALL.filter(r => r.species_id === SEL)) (months[r.date.slice(0, 7)] ||= []).push(r.price);
+  const keys = Object.keys(months).sort();
+  if (keys.length < 2) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  document.getElementById('trendTitle').textContent = `${ALL.find(r => r.species_id === SEL).name}・近一年每月開價中位（元/台斤）`;
+  chart = new Chart(document.getElementById('trend'), {
+    type: 'line',
+    data: { labels: keys.map(k => +k.slice(5) + '月'), datasets: [
+      { label: '中位', data: keys.map(k => median(months[k])), borderColor: css('--accent'), tension: .3, pointRadius: 3 },
+      { label: '筆數', data: keys.map(k => months[k].length), type: 'bar', backgroundColor: css('--accent-soft'), yAxisID: 'y2' }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: css('--muted') } } },
+      scales: { x: { ticks: { color: css('--muted') }, grid: { display: false } },
+        y: { ticks: { color: css('--muted') }, grid: { color: css('--line') } },
+        y2: { position: 'right', ticks: { color: css('--muted'), precision: 0 }, grid: { display: false } } } } });
+}
+
+// ---------- 匯出圖片（固定淺色、1080 寬，適合 LINE 群組）----------
+const FONT = '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", "Heiti TC", sans-serif';
+const C = { bg: '#ffffff', ink: '#1b2733', muted: '#6b7785', line: '#e3e8ee', accent: '#0b6e99', soft: '#e2f1f8', up: '#c0392b', down: '#1e8449' };
+
+function shareCanvas() {
+  const W = 1080, P = 48, sel = SEL && CARDS.find(c => c.sid === SEL);
+  const kw = q.value.trim();
+  const sub = `${periodName()}・${new Date().toISOString().slice(0, 10)} 製表` + (kw ? `・搜尋「${kw}」` : '') + (hideSold.checked ? '・不含售完' : '');
+  const cards = sel ? [sel] : CARDS.slice(0, 14);
+  const offers = sel ? LIST.slice(0, 12) : [];
+  const H = P + 130 + 64 + cards.length * 92 + (offers.length ? 70 + offers.length * 64 : 0) + 110;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  const text = (s, x, y, size, color, weight = 400, align = 'left') => {
+    g.font = `${weight} ${size}px ${FONT}`; g.fillStyle = color; g.textAlign = align; g.fillText(s, x, y);
+    return g.measureText(s).width;
+  };
+  const fit = (s, maxW, size) => {   // 超過寬度就截斷加「…」
+    g.font = `400 ${size}px ${FONT}`;
+    if (g.measureText(s).width <= maxW) return s;
+    while (s && g.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+    return s + '…';
+  };
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  g.fillStyle = C.accent; g.fillRect(0, 0, W, 14);
+
+  let y = P + 52;
+  text(sel ? `🎣 ${sel.name} 釣友直售價` : '🎣 釣友／船家直售價', P, y, 46, C.ink, 700);
+  y += 46; text(sub, P, y, 26, C.muted);
+  y += 32;
+
+  // 表頭
+  y += 40;
+  const X = { name: P, med: 560, range: 760, n: 900, ws: W - P };
+  text('魚種', X.name, y, 24, C.muted, 600); text('中位 元/斤', X.med, y, 24, C.muted, 600, 'right');
+  text('區間', X.range, y, 24, C.muted, 600, 'right'); text('筆數', X.n, y, 24, C.muted, 600, 'right');
+  text('批發上價', X.ws, y, 24, C.muted, 600, 'right');
+  y += 16; g.fillStyle = C.line; g.fillRect(P, y, W - 2 * P, 2);
+
+  cards.forEach((c, i) => {
+    const top = y + 4;
+    if (i % 2) { g.fillStyle = '#f6f9fb'; g.fillRect(P, top, W - 2 * P, 88); }
+    const ry = top + 58;
+    const nw = text(c.name, X.name + 8, ry, 34, C.ink, 700);
+    if (c.n < 3) text('樣本少', X.name + 20 + nw, ry - 4, 20, C.muted);
+    text(String(c.med), X.med, ry - (c.chg ? 10 : 0), 44, C.accent, 700, 'right');
+    if (c.chg) text(`近30天${c.chg > 0 ? '▲' : '▼'}${Math.abs(c.chg)}%`, X.med, ry + 20, 20, c.chg > 0 ? C.up : C.down, 600, 'right');
+    text(`${c.lo}～${c.hi}`, X.range, ry, 28, C.ink, 400, 'right');
+    text(String(c.n), X.n, ry, 28, C.ink, 400, 'right');
+    const w = WHOLESALE[c.sid];
+    text(w ? String(w) : '–', X.ws, ry - (w ? 12 : 0), 28, C.ink, 400, 'right');
+    if (w) text(`直售 ${(c.med / w).toFixed(1)} 倍`, X.ws, ry + 18, 20, C.muted, 400, 'right');
+    y = top + 88;
+  });
+  if (!cards.length) { y += 70; text('這段期間沒有直售開價', W / 2, y, 30, C.muted, 400, 'center'); }
+
+  if (offers.length) {
+    y += 64; text('最新開價', P, y, 32, C.ink, 700);
+    y += 8;
+    for (const r of offers) {
+      y += 2; g.fillStyle = C.line; g.fillRect(P, y, W - 2 * P, 1);
+      const ry = y + 44;
+      text(r.date.slice(5), P, ry, 26, C.muted);
+      const desc = [r.size, ...r.ports, r.sold ? '售完' : ''].filter(Boolean).join('・') || '—';
+      text(fit(desc, 620, 26), P + 110, ry, 26, C.ink);
+      text(`${r.price} 元/斤`, W - P, ry, 30, r.sold ? C.muted : C.accent, 700, 'right');
+      y += 62;
+    }
+  }
+
+  y = H - 58;
+  g.fillStyle = C.line; g.fillRect(P, y - 34, W - 2 * P, 2);
+  text('資料來源：FB 公開貼文之釣友／船家開價（不一定是成交價）；批發上價為農業部北部市場近 7 天。', P, y, 21, C.muted);
+  text('同一魚種大小、處理方式不同價差很大，僅供參考。', P, y + 30, 21, C.muted);
+  return cv;
+}
+
+let SHARE_BLOB = null;
+const shareName = () => `直售價_${(SEL && CARDS.find(c => c.sid === SEL)?.name) || '總表'}_${new Date().toISOString().slice(0, 10)}.png`;
+shareBtn.onclick = () => {
+  const cv = shareCanvas();
+  shareImg.src = cv.toDataURL('image/png');
+  cv.toBlob(b => {
+    SHARE_BLOB = b;
+    const f = new File([b], shareName(), { type: 'image/png' });
+    shareNative.style.display = navigator.canShare?.({ files: [f] }) ? '' : 'none';
+  }, 'image/png');
+  shareCopy.style.display = window.ClipboardItem && navigator.clipboard?.write ? '' : 'none';
+  shareDlg.showModal();
+};
+shareSave.onclick = () => {
+  const a = document.createElement('a');
+  a.href = shareImg.src; a.download = shareName(); a.click();
+};
+shareCopy.onclick = async () => {
+  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': SHARE_BLOB })]); shareCopy.textContent = '✅ 已複製'; }
+  catch (e) { shareCopy.textContent = '複製失敗，請用下載'; }
+  setTimeout(() => shareCopy.textContent = '📋 複製圖片', 2000);
+};
+shareNative.onclick = () => navigator.share({ files: [new File([SHARE_BLOB], shareName(), { type: 'image/png' })] }).catch(() => {});
+
+document.querySelectorAll('#days button').forEach(b => b.onclick = () => { DAYS = +b.dataset.d; store('directDays', DAYS); SHOW = 40; render(); });
+q.oninput = hideSold.onchange = () => { SHOW = 40; render(); };
+moreBtn.onclick = () => { SHOW += 40; render(); };
+
+(async () => {
+  const d = await (await fetch('/api/direct_list?days=365')).json();
+  ALL = d.rows;
+  document.getElementById('meta').textContent = `從 FB 貼文萃取的直售開價（元/台斤），不一定是成交價・共 ${ALL.length} 筆・最新 ${ALL[0]?.date || '–'}`;
+  render();
+  try {   // 批發上價對照（北部市場近 7 天，取交易量最大的品項）
+    const p = await (await fetch('/api/prices?days=7')).json(), best = {};
+    for (const it of p.items) if (it.species_id && it.tiers.top && (!best[it.species_id] || it.volume_kg > best[it.species_id].volume_kg)) best[it.species_id] = it;
+    WHOLESALE = Object.fromEntries(Object.entries(best).map(([k, it]) => [k, it.tiers.top.jin]));
+    render();
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
